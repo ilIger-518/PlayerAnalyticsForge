@@ -25,3 +25,8 @@ mandatory=true
 versionRange="[1.20.1,1.20.2)"
 ordering="NONE"
 side="BOTH"
+
+[[jarJar.pin]]
+jarJarGroup="org.xerial"
+jarJarArtifact="sqlite-jdbc"
+jarJarVersion="[3.45.0,4.0.0)"

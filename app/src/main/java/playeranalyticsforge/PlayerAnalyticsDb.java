@@ -259,8 +259,34 @@ public final class PlayerAnalyticsDb {
             } catch (Exception ex) {
                 PlayeranalyticsForgeMod.LOGGER.warn("Failed to create config directory: {}", configDir, ex);
             }
+            
+            String jdbcUrl = "jdbc:sqlite:" + dbPath.toAbsolutePath();
 
-            connection = DriverManager.getConnection("jdbc:sqlite:" + dbPath.toAbsolutePath());
+            // Force load SQLite JDBC driver - try to load from runtime libs if needed
+            try {
+                Class.forName("org.sqlite.JDBC");
+                connection = DriverManager.getConnection(jdbcUrl);
+            } catch (ClassNotFoundException ex) {
+                PlayeranalyticsForgeMod.LOGGER.warn("SQLite JDBC driver not on classpath, attempting to load from libs folder");
+                try {
+                    Path libPath = FMLPaths.GAMEDIR.get().resolve("libs/sqlite-jdbc-3.45.3.0.jar");
+                    if (Files.exists(libPath)) {
+                        java.net.URL url = libPath.toUri().toURL();
+                        java.net.URLClassLoader loader = new java.net.URLClassLoader(new java.net.URL[]{url}, PlayerAnalyticsDb.class.getClassLoader());
+                        Class<?> driverClass = Class.forName("org.sqlite.JDBC", true, loader);
+                        java.sql.Driver driver = (java.sql.Driver) driverClass.getDeclaredConstructor().newInstance();
+                        java.util.Properties props = new java.util.Properties();
+                        connection = driver.connect(jdbcUrl, props);
+                        PlayeranalyticsForgeMod.LOGGER.info("Successfully loaded SQLite JDBC driver from libs folder and connected");
+                    } else {
+                        throw new SQLException("SQLite JDBC driver not available and libs JAR not found", ex);
+                    }
+                } catch (Exception e) {
+                    PlayeranalyticsForgeMod.LOGGER.error("Failed to load SQLite JDBC driver", e);
+                    throw new SQLException("SQLite JDBC driver not available", ex);
+                }
+            }
+
             try (Statement statement = connection.createStatement()) {
                 statement.executeUpdate(
                     "CREATE TABLE IF NOT EXISTS player_sessions (" +

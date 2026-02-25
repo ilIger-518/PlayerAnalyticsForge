@@ -4,6 +4,8 @@ plugins {
     id 'maven-publish'
 }
 
+jarJar.enable()
+
 group = 'playeranalyticsforge'
 version = project.mod_version
 
@@ -21,10 +23,17 @@ minecraft {
     mappings channel: 'official', version: project.minecraft_version
 
     runs {
+        all {
+            property 'mixin.env.remapRefMap', 'true'
+            property 'mixin.env.refMapRemappingFile', "${projectDir}/build/createSrgToMcp/output.srg"
+        }
+        
         client {
             workingDirectory project.file('run')
             property 'forge.logging.markers', 'REGISTRIES'
             property 'forge.logging.console.level', 'debug'
+            
+            property 'forge.enabledGameTestNamespaces', project.mod_id
 
             mods {
                 "${project.mod_id}" {
@@ -37,6 +46,8 @@ minecraft {
             workingDirectory project.file('run')
             property 'forge.logging.markers', 'REGISTRIES'
             property 'forge.logging.console.level', 'debug'
+            
+            property 'forge.enabledGameTestNamespaces', project.mod_id
 
             mods {
                 "${project.mod_id}" {
@@ -63,7 +74,9 @@ sourceSets.main.resources { srcDir 'src/generated/resources' }
 dependencies {
     minecraft "net.minecraftforge:forge:${project.minecraft_version}-${project.forge_version}"
 
+    // SQLite JDBC
     implementation 'org.xerial:sqlite-jdbc:3.45.3.0'
+    jarJar(group: 'org.xerial', name: 'sqlite-jdbc', version: '[3.45.0,4.0.0)')
 
     testImplementation libs.junit.jupiter
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -86,6 +99,16 @@ tasks.named('processResources', ProcessResources).configure {
     }
 }
 
+task copyRuntimeLibs(type: Copy) {
+    from configurations.runtimeClasspath
+    include 'sqlite-jdbc-*.jar'
+    into 'run/libs'
+}
+
+tasks.matching { it.name.startsWith('prepare') && it.name.contains('Run') }.configureEach {
+    dependsOn 'copyRuntimeLibs'
+}
+
 tasks.named('jar', Jar) {
     manifest {
         attributes([
@@ -97,4 +120,5 @@ tasks.named('jar', Jar) {
             'Implementation-Vendor'   : project.mod_author
         ])
     }
+    finalizedBy 'reobfJar'
 }
