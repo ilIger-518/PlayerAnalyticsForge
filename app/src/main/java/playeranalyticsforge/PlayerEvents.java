@@ -41,9 +41,18 @@ public final class PlayerEvents {
         }
 
         if (event.getSource().getEntity() instanceof ServerPlayer killer) {
-            if (!(event.getEntity() instanceof ServerPlayer victim) || !victim.getUUID().equals(killer.getUUID())) {
-                PlayerAnalyticsDb.recordKill(killer);
+            String victimType = event.getEntity().getType().getDescription().getString();
+            String victimName = null;
+            
+            if (event.getEntity() instanceof ServerPlayer victim) {
+                if (victim.getUUID().equals(killer.getUUID())) {
+                    return;
+                }
+                victimName = victim.getGameProfile().getName();
             }
+            
+            PlayerAnalyticsDb.recordKill(killer);
+            PlayerAnalyticsDb.recordKillDetail(killer, victimType, victimName);
         }
     }
 

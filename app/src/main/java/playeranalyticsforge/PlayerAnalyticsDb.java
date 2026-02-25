@@ -185,6 +185,67 @@ public final class PlayerAnalyticsDb {
         updateStats(player, false);
     }
 
+    public static void recordKillDetail(ServerPlayer killer, String victimType, String victimName) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "INSERT INTO kill_details (killer_uuid, killer_name, victim_type, victim_name, kill_count, last_kill_time) " +
+                    "VALUES (?, ?, ?, ?, 1, ?) " +
+                    "ON CONFLICT(killer_uuid, victim_type, victim_name) DO UPDATE SET " +
+                    "killer_name=excluded.killer_name, " +
+                    "kill_count=kill_details.kill_count + 1, " +
+                    "last_kill_time=excluded.last_kill_time";
+                try (PreparedStatement statement = conn.prepareStatement(sql)) {
+                    statement.setString(1, killer.getUUID().toString());
+                    statement.setString(2, killer.getGameProfile().getName());
+                    statement.setString(3, victimType);
+                    statement.setString(4, victimName);
+                    statement.setString(5, Instant.now().toString());
+                    statement.executeUpdate();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to record kill detail", ex);
+            }
+        }
+    }
+
+    public static String getKillDetailsJson(int limit) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT killer_uuid, killer_name, victim_type, victim_name, kill_count, last_kill_time " +
+                    "FROM kill_details ORDER BY last_kill_time DESC LIMIT ?";
+                try (PreparedStatement statement = conn.prepareStatement(sql)) {
+                    statement.setInt(1, limit);
+                    try (ResultSet rs = statement.executeQuery()) {
+                        StringBuilder json = new StringBuilder();
+                        json.append("[");
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) {
+                                json.append(",");
+                            }
+                            first = false;
+                            json.append("{");
+                            json.append("\"killerUuid\":").append(toJsonString(rs.getString("killer_uuid"))).append(",");
+                            json.append("\"killerName\":").append(toJsonString(rs.getString("killer_name"))).append(",");
+                            json.append("\"victimType\":").append(toJsonString(rs.getString("victim_type"))).append(",");
+                            json.append("\"victimName\":").append(toJsonString(rs.getString("victim_name"))).append(",");
+                            json.append("\"killCount\":").append(rs.getLong("kill_count")).append(",");
+                            json.append("\"lastKillTime\":").append(toJsonString(rs.getString("last_kill_time")));
+                            json.append("}");
+                        }
+                        json.append("]");
+                        return json.toString();
+                    }
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to query kill details", ex);
+                return "[]";
+            }
+        }
+    }
+
     private static Connection init() throws SQLException {
         synchronized (LOCK) {
             if (connection != null) {
@@ -217,6 +278,18 @@ public final class PlayerAnalyticsDb {
                         "kills INTEGER NOT NULL DEFAULT 0, " +
                         "deaths INTEGER NOT NULL DEFAULT 0, " +
                         "last_seen TEXT" +
+                    ")"
+                );
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS kill_details (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "killer_uuid TEXT NOT NULL, " +
+                        "killer_name TEXT NOT NULL, " +
+                        "victim_type TEXT NOT NULL, " +
+                        "victim_name TEXT, " +
+                        "kill_count INTEGER NOT NULL DEFAULT 1, " +
+                        "last_kill_time TEXT NOT NULL, " +
+                        "UNIQUE(killer_uuid, victim_type, victim_name)" +
                     ")"
                 );
             }

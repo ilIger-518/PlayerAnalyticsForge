@@ -40,6 +40,7 @@ public final class AnalyticsWebServer {
             server.createContext("/api/summary", exchange -> handleJson(exchange, PlayerAnalyticsDb.getSummaryJson()));
             server.createContext("/api/events", exchange -> handleJson(exchange, PlayerAnalyticsDb.getRecentEventsJson(readLimit(exchange))));
             server.createContext("/api/players", exchange -> handleJson(exchange, PlayerAnalyticsDb.getPlayersJson(readLimit(exchange))));
+            server.createContext("/api/kills", exchange -> handleJson(exchange, PlayerAnalyticsDb.getKillDetailsJson(readLimit(exchange))));
             server.setExecutor(null);
             server.start();
             PlayeranalyticsForgeMod.LOGGER.info("Analytics web UI running at http://{}:{}", HOST, PORT);
@@ -239,8 +240,20 @@ public final class AnalyticsWebServer {
                   </thead>
                   <tbody id=\"players-body\"></tbody>
                 </table>
-              </section>
-            </main>
+              </section>              <section class="card">
+                <div class="pill">Kill Details</div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Killer</th>
+                      <th>Victim</th>
+                      <th>Count</th>
+                      <th>Last Kill (UTC)</th>
+                    </tr>
+                  </thead>
+                  <tbody id="kills-body"></tbody>
+                </table>
+              </section>            </main>
             <div class=\"footer\">Powered by Playeranalytics Forge mod</div>
             <script>
               async function loadSummary() {
@@ -276,8 +289,21 @@ public final class AnalyticsWebServer {
                 });
               }
 
+              async function loadKills() {
+                const res = await fetch("/api/kills?limit=50");
+                const data = await res.json();
+                const body = document.getElementById("kills-body");
+                body.innerHTML = "";
+                data.forEach(kill => {
+                  const row = document.createElement("tr");
+                  const victimDisplay = kill.victimName ? `${kill.victimName} (${kill.victimType})` : kill.victimType;
+                  row.innerHTML = `<td>${kill.killerName}</td><td>${victimDisplay}</td><td>${kill.killCount}</td><td>${kill.lastKillTime}</td>`;
+                  body.appendChild(row);
+                });
+              }
+
               async function refreshAll() {
-                await Promise.all([loadSummary(), loadEvents(), loadPlayers()]);
+                await Promise.all([loadSummary(), loadEvents(), loadPlayers(), loadKills()]);
               }
 
               refreshAll();
