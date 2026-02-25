@@ -210,7 +210,8 @@ public final class AnalyticsWebServer {
                 <div class=\"stat\" id=\"summary-joins\">0 joins</div>
                 <div class=\"stat\" id=\"summary-leaves\">0 leaves</div>
                 <div class=\"stat\" id=\"summary-unique\">0 unique players</div>
-                <p id=\"summary-sessions\" style=\"margin-top: 8px;\">Sessions: 0 (avg 0s)</p>
+                <p id=\"summary-playtime\" style=\"margin-top: 8px;\">Total playtime: 0h 0m</p>
+                <p id=\"summary-sessions\">Sessions: 0 (avg 0s)</p>
                 <p id=\"summary-last\">Last event: -</p>
               </section>
               <section class=\"card\">
@@ -231,8 +232,7 @@ public final class AnalyticsWebServer {
                 <table>
                   <thead>
                     <tr>
-                      <th>Player</th>
-                      <th>Last seen</th>
+                      <th>Player</th>                      <th>Playtime</th>                      <th>Last seen</th>
                       <th>Joins</th>
                       <th>Leaves</th>
                       <th>Kills</th>
@@ -278,6 +278,9 @@ public final class AnalyticsWebServer {
                 document.getElementById("summary-joins").textContent = `${data.joins} joins`;
                 document.getElementById("summary-leaves").textContent = `${data.leaves} leaves`;
                 document.getElementById("summary-unique").textContent = `${data.uniquePlayers} unique players`;
+                const playtimeHours = Math.floor(data.totalPlaytimeSeconds / 3600);
+                const playtimeMinutes = Math.floor((data.totalPlaytimeSeconds % 3600) / 60);
+                document.getElementById("summary-playtime").textContent = `Total playtime: ${playtimeHours}h ${playtimeMinutes}m`;
                 const avgMinutes = Math.floor(data.avgSessionDuration / 60);
                 const avgSeconds = data.avgSessionDuration % 60;
                 document.getElementById("summary-sessions").textContent = `Sessions: ${data.totalSessions} (avg ${avgMinutes}m ${avgSeconds}s)`;
@@ -303,7 +306,10 @@ public final class AnalyticsWebServer {
                 body.innerHTML = "";
                 data.forEach(player => {
                   const row = document.createElement("tr");
-                  row.innerHTML = `<td>${player.playerName}</td><td>${player.lastSeen ?? "-"}</td><td>${player.joins}</td><td>${player.leaves}</td><td>${player.kills}</td><td>${player.deaths}</td><td>${player.kdRatio}</td>`;
+                  const playtimeHours = Math.floor(player.totalPlaytimeSeconds / 3600);
+                  const playtimeMinutes = Math.floor((player.totalPlaytimeSeconds % 3600) / 60);
+                  const playtimeDisplay = `${playtimeHours}h ${playtimeMinutes}m`;
+                  row.innerHTML = `<td>${player.playerName}</td><td>${playtimeDisplay}</td><td>${player.lastSeen ?? "-"}</td><td>${player.joins}</td><td>${player.leaves}</td><td>${player.kills}</td><td>${player.deaths}</td><td>${player.kdRatio}</td>`;
                   body.appendChild(row);
                 });
               }

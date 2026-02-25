@@ -59,14 +59,22 @@ public final class PlayerAnalyticsDb {
                         long uniquePlayers = rs.getLong("unique_players");
                         String lastEvent = rs.getString("last_event_time");
                         
-                        // Get session stats
+                        // Get session stats and total playtime
                         String sessionSql = "SELECT COUNT(*) AS total_sessions, AVG(duration_seconds) AS avg_duration FROM player_session_data";
-                        try (Statement sessionStmt = conn.createStatement(); ResultSet sessionRs = sessionStmt.executeQuery(sessionSql)) {
+                        String playtimeSql = "SELECT COALESCE(SUM(total_playtime_seconds), 0) AS total_playtime FROM player_stats";
+                        try (Statement sessionStmt = conn.createStatement(); 
+                             ResultSet sessionRs = sessionStmt.executeQuery(sessionSql);
+                             Statement playtimeStmt = conn.createStatement();
+                             ResultSet playtimeRs = playtimeStmt.executeQuery(playtimeSql)) {
                             long totalSessions = 0;
                             long avgDuration = 0;
+                            long totalPlaytime = 0;
                             if (sessionRs.next()) {
                                 totalSessions = sessionRs.getLong("total_sessions");
                                 avgDuration = sessionRs.getLong("avg_duration");
+                            }
+                            if (playtimeRs.next()) {
+                                totalPlaytime = playtimeRs.getLong("total_playtime");
                             }
                             
                             return "{" +
@@ -75,7 +83,8 @@ public final class PlayerAnalyticsDb {
                                 "\"uniquePlayers\":" + uniquePlayers + "," +
                                 "\"lastEvent\":" + toJsonString(lastEvent) + "," +
                                 "\"totalSessions\":" + totalSessions + "," +
-                                "\"avgSessionDuration\":" + avgDuration +
+                                "\"avgSessionDuration\":" + avgDuration + "," +
+                                "\"totalPlaytimeSeconds\":" + totalPlaytime +
                                 "}";
                         }
                     }
@@ -83,7 +92,7 @@ public final class PlayerAnalyticsDb {
             } catch (SQLException ex) {
                 PlayeranalyticsForgeMod.LOGGER.error("Failed to query summary", ex);
             }
-            return "{\"joins\":0,\"leaves\":0,\"uniquePlayers\":0,\"lastEvent\":null,\"totalSessions\":0,\"avgSessionDuration\":0}";
+            return "{\"joins\":0,\"leaves\":0,\"uniquePlayers\":0,\"lastEvent\":null,\"totalSessions\":0,\"avgSessionDuration\":0,\"totalPlaytimeSeconds\":0}";
         }
     }
 
@@ -139,6 +148,7 @@ public final class PlayerAnalyticsDb {
                     "COALESCE(ps.player_name, b.player_name) AS player_name, " +
                     "COALESCE(ps.kills, 0) AS kills, " +
                     "COALESCE(ps.deaths, 0) AS deaths, " +
+                    "COALESCE(ps.total_playtime_seconds, 0) AS total_playtime_seconds, " +
                     "COALESCE(ps.last_seen, ss.last_seen) AS last_seen, " +
                     "COALESCE(ss.joins, 0) AS joins, " +
                     "COALESCE(ss.leaves, 0) AS leaves " +
@@ -165,9 +175,11 @@ public final class PlayerAnalyticsDb {
                             json.append("\"leaves\":").append(rs.getLong("leaves")).append(",");
                             long kills = rs.getLong("kills");
                             long deaths = rs.getLong("deaths");
+                            long totalPlaytimeSeconds = rs.getLong("total_playtime_seconds");
                             json.append("\"kills\":").append(kills).append(",");
                             json.append("\"deaths\":").append(deaths).append(",");
-                            json.append("\"kdRatio\":").append(formatKdRatio(kills, deaths));
+                            json.append("\"kdRatio\":").append(formatKdRatio(kills, deaths)).append(",");
+                            json.append("\"totalPlaytimeSeconds\":").append(totalPlaytimeSeconds);
                             json.append("}");
                         }
                         json.append("]");
@@ -321,9 +333,19 @@ public final class PlayerAnalyticsDb {
                         "player_name TEXT NOT NULL, " +
                         "kills INTEGER NOT NULL DEFAULT 0, " +
                         "deaths INTEGER NOT NULL DEFAULT 0, " +
+                        "total_playtime_seconds INTEGER NOT NULL DEFAULT 0, " +
                         "last_seen TEXT" +
                     ")"
                 );
+                // Add playtime column to existing tables (migration)
+                try (ResultSet rs = connection.getMetaData().getColumns(null, null, "player_stats", "total_playtime_seconds")) {
+                    if (!rs.next()) {
+                        statement.executeUpdate("ALTER TABLE player_stats ADD COLUMN total_playtime_seconds INTEGER NOT NULL DEFAULT 0");
+                        PlayeranalyticsForgeMod.LOGGER.info("Added total_playtime_seconds column to player_stats table");
+                    }
+                } catch (SQLException migrationEx) {
+                    PlayeranalyticsForgeMod.LOGGER.debug("total_playtime_seconds column already exists or migration not needed");
+                }
                 statement.executeUpdate(
                     "CREATE TABLE IF NOT EXISTS kill_details (" +
                         "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
@@ -376,6 +398,7 @@ public final class PlayerAnalyticsDb {
         synchronized (LOCK) {
             try {
                 Connection conn = init();
+                // Record session
                 String sql = "INSERT INTO player_session_data (player_uuid, player_name, session_start, session_end, duration_seconds) VALUES (?, ?, ?, ?, ?)";
                 try (PreparedStatement statement = conn.prepareStatement(sql)) {
                     statement.setString(1, player.getUUID().toString());
@@ -384,8 +407,27 @@ public final class PlayerAnalyticsDb {
                     statement.setString(4, endTime.toString());
                     statement.setLong(5, durationSeconds);
                     statement.executeUpdate();
-                    PlayeranalyticsForgeMod.LOGGER.info("Recorded session for {}: {} seconds", player.getGameProfile().getName(), durationSeconds);
                 }
+                
+                // Update total playtime in player_stats
+                String updatePlaytimeSql = "INSERT INTO player_stats (player_uuid, player_name, total_playtime_seconds, last_seen) " +
+                    "VALUES (?, ?, ?, ?) " +
+                    "ON CONFLICT(player_uuid) DO UPDATE SET " +
+                    "total_playtime_seconds = total_playtime_seconds + ?, " +
+                    "player_name = ?, " +
+                    "last_seen = ?";
+                try (PreparedStatement updateStmt = conn.prepareStatement(updatePlaytimeSql)) {
+                    updateStmt.setString(1, player.getUUID().toString());
+                    updateStmt.setString(2, player.getGameProfile().getName());
+                    updateStmt.setLong(3, durationSeconds);
+                    updateStmt.setString(4, endTime.toString());
+                    updateStmt.setLong(5, durationSeconds);
+                    updateStmt.setString(6, player.getGameProfile().getName());
+                    updateStmt.setString(7, endTime.toString());
+                    updateStmt.executeUpdate();
+                }
+                
+                PlayeranalyticsForgeMod.LOGGER.info("Recorded session for {}: {} seconds", player.getGameProfile().getName(), durationSeconds);
             } catch (SQLException ex) {
                 PlayeranalyticsForgeMod.LOGGER.error("Failed to record session", ex);
             }
