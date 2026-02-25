@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
@@ -20,18 +21,127 @@ public final class PlayerAnalyticsDb {
     }
 
     public static void recordEvent(String eventType, ServerPlayer player) {
-        try {
-            Connection conn = init();
-            String sql = "INSERT INTO player_sessions (player_uuid, player_name, event_type, event_time_utc) VALUES (?, ?, ?, ?)";
-            try (PreparedStatement statement = conn.prepareStatement(sql)) {
-                statement.setString(1, player.getUUID().toString());
-                statement.setString(2, player.getGameProfile().getName());
-                statement.setString(3, eventType);
-                statement.setString(4, Instant.now().toString());
-                statement.executeUpdate();
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "INSERT INTO player_sessions (player_uuid, player_name, event_type, event_time_utc) VALUES (?, ?, ?, ?)";
+                try (PreparedStatement statement = conn.prepareStatement(sql)) {
+                    statement.setString(1, player.getUUID().toString());
+                    statement.setString(2, player.getGameProfile().getName());
+                    statement.setString(3, eventType);
+                    statement.setString(4, Instant.now().toString());
+                    statement.executeUpdate();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to record player event: {}", eventType, ex);
             }
-        } catch (SQLException ex) {
-            PlayeranalyticsForgeMod.LOGGER.error("Failed to record player event: {}", eventType, ex);
+        }
+    }
+
+    public static String getSummaryJson() {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT " +
+                    "SUM(CASE WHEN event_type='join' THEN 1 ELSE 0 END) AS joins, " +
+                    "SUM(CASE WHEN event_type='leave' THEN 1 ELSE 0 END) AS leaves, " +
+                    "COUNT(DISTINCT player_uuid) AS unique_players, " +
+                    "MAX(event_time_utc) AS last_event_time " +
+                    "FROM player_sessions";
+                try (Statement statement = conn.createStatement(); ResultSet rs = statement.executeQuery(sql)) {
+                    if (rs.next()) {
+                        long joins = rs.getLong("joins");
+                        long leaves = rs.getLong("leaves");
+                        long uniquePlayers = rs.getLong("unique_players");
+                        String lastEvent = rs.getString("last_event_time");
+                        return "{" +
+                            "\"joins\":" + joins + "," +
+                            "\"leaves\":" + leaves + "," +
+                            "\"uniquePlayers\":" + uniquePlayers + "," +
+                            "\"lastEvent\":" + toJsonString(lastEvent) +
+                            "}";
+                    }
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to query summary", ex);
+            }
+            return "{\"joins\":0,\"leaves\":0,\"uniquePlayers\":0,\"lastEvent\":null}";
+        }
+    }
+
+    public static String getRecentEventsJson(int limit) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT player_uuid, player_name, event_type, event_time_utc " +
+                    "FROM player_sessions ORDER BY id DESC LIMIT ?";
+                try (PreparedStatement statement = conn.prepareStatement(sql)) {
+                    statement.setInt(1, limit);
+                    try (ResultSet rs = statement.executeQuery()) {
+                        StringBuilder json = new StringBuilder();
+                        json.append("[");
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) {
+                                json.append(",");
+                            }
+                            first = false;
+                            json.append("{");
+                            json.append("\"playerUuid\":").append(toJsonString(rs.getString("player_uuid"))).append(",");
+                            json.append("\"playerName\":").append(toJsonString(rs.getString("player_name"))).append(",");
+                            json.append("\"eventType\":").append(toJsonString(rs.getString("event_type"))).append(",");
+                            json.append("\"eventTimeUtc\":").append(toJsonString(rs.getString("event_time_utc")));
+                            json.append("}");
+                        }
+                        json.append("]");
+                        return json.toString();
+                    }
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to query recent events", ex);
+                return "[]";
+            }
+        }
+    }
+
+    public static String getPlayersJson(int limit) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT player_uuid, player_name, " +
+                    "MAX(event_time_utc) AS last_seen, " +
+                    "SUM(CASE WHEN event_type='join' THEN 1 ELSE 0 END) AS joins, " +
+                    "SUM(CASE WHEN event_type='leave' THEN 1 ELSE 0 END) AS leaves " +
+                    "FROM player_sessions " +
+                    "GROUP BY player_uuid, player_name " +
+                    "ORDER BY last_seen DESC LIMIT ?";
+                try (PreparedStatement statement = conn.prepareStatement(sql)) {
+                    statement.setInt(1, limit);
+                    try (ResultSet rs = statement.executeQuery()) {
+                        StringBuilder json = new StringBuilder();
+                        json.append("[");
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) {
+                                json.append(",");
+                            }
+                            first = false;
+                            json.append("{");
+                            json.append("\"playerUuid\":").append(toJsonString(rs.getString("player_uuid"))).append(",");
+                            json.append("\"playerName\":").append(toJsonString(rs.getString("player_name"))).append(",");
+                            json.append("\"lastSeen\":").append(toJsonString(rs.getString("last_seen"))).append(",");
+                            json.append("\"joins\":").append(rs.getLong("joins")).append(",");
+                            json.append("\"leaves\":").append(rs.getLong("leaves"));
+                            json.append("}");
+                        }
+                        json.append("]");
+                        return json.toString();
+                    }
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to query player list", ex);
+                return "[]";
+            }
         }
     }
 
@@ -78,5 +188,18 @@ public final class PlayerAnalyticsDb {
 
             return connection;
         }
+    }
+
+    private static String toJsonString(String value) {
+        if (value == null) {
+            return "null";
+        }
+        String escaped = value
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t");
+        return "\"" + escaped + "\"";
     }
 }

@@ -2,6 +2,7 @@ package playeranalyticsforge;
 
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -28,7 +29,13 @@ public final class PlayerEvents {
     }
 
     @SubscribeEvent
+    public static void onServerStarted(ServerStartedEvent event) {
+        AnalyticsWebServer.start();
+    }
+
+    @SubscribeEvent
     public static void onServerStopping(ServerStoppingEvent event) {
+        AnalyticsWebServer.stop();
         PlayerAnalyticsDb.close();
     }
 }
