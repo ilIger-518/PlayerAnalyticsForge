@@ -232,6 +232,9 @@ public final class AnalyticsWebServer {
                       <th>Last seen</th>
                       <th>Joins</th>
                       <th>Leaves</th>
+                      <th>Kills</th>
+                      <th>Deaths</th>
+                      <th>K/D</th>
                     </tr>
                   </thead>
                   <tbody id=\"players-body\"></tbody>
@@ -268,7 +271,7 @@ public final class AnalyticsWebServer {
                 body.innerHTML = "";
                 data.forEach(player => {
                   const row = document.createElement("tr");
-                  row.innerHTML = `<td>${player.playerName}</td><td>${player.lastSeen ?? "-"}</td><td>${player.joins}</td><td>${player.leaves}</td>`;
+                  row.innerHTML = `<td>${player.playerName}</td><td>${player.lastSeen ?? "-"}</td><td>${player.joins}</td><td>${player.leaves}</td><td>${player.kills}</td><td>${player.deaths}</td><td>${player.kdRatio}</td>`;
                   body.appendChild(row);
                 });
               }

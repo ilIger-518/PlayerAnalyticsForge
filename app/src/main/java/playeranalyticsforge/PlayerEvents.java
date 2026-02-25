@@ -1,6 +1,7 @@
 package playeranalyticsforge;
 
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
@@ -31,6 +32,19 @@ public final class PlayerEvents {
     @SubscribeEvent
     public static void onServerStarted(ServerStartedEvent event) {
         AnalyticsWebServer.start();
+    }
+
+    @SubscribeEvent
+    public static void onLivingDeath(LivingDeathEvent event) {
+        if (event.getEntity() instanceof ServerPlayer victim) {
+            PlayerAnalyticsDb.recordDeath(victim);
+        }
+
+        if (event.getSource().getEntity() instanceof ServerPlayer killer) {
+            if (!(event.getEntity() instanceof ServerPlayer victim) || !victim.getUUID().equals(killer.getUUID())) {
+                PlayerAnalyticsDb.recordKill(killer);
+            }
+        }
     }
 
     @SubscribeEvent

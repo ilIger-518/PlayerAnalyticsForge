@@ -108,12 +108,25 @@ public final class PlayerAnalyticsDb {
         synchronized (LOCK) {
             try {
                 Connection conn = init();
-                String sql = "SELECT player_uuid, player_name, " +
-                    "MAX(event_time_utc) AS last_seen, " +
+                String sql = "WITH session_stats AS (" +
+                    "SELECT player_uuid, " +
                     "SUM(CASE WHEN event_type='join' THEN 1 ELSE 0 END) AS joins, " +
-                    "SUM(CASE WHEN event_type='leave' THEN 1 ELSE 0 END) AS leaves " +
-                    "FROM player_sessions " +
-                    "GROUP BY player_uuid, player_name " +
+                    "SUM(CASE WHEN event_type='leave' THEN 1 ELSE 0 END) AS leaves, " +
+                    "MAX(event_time_utc) AS last_seen " +
+                    "FROM player_sessions GROUP BY player_uuid" +
+                    "), base_players AS (" +
+                    "SELECT player_uuid, MAX(player_name) AS player_name FROM player_sessions GROUP BY player_uuid" +
+                    ") " +
+                    "SELECT b.player_uuid, " +
+                    "COALESCE(ps.player_name, b.player_name) AS player_name, " +
+                    "COALESCE(ps.kills, 0) AS kills, " +
+                    "COALESCE(ps.deaths, 0) AS deaths, " +
+                    "COALESCE(ps.last_seen, ss.last_seen) AS last_seen, " +
+                    "COALESCE(ss.joins, 0) AS joins, " +
+                    "COALESCE(ss.leaves, 0) AS leaves " +
+                    "FROM base_players b " +
+                    "LEFT JOIN player_stats ps ON ps.player_uuid = b.player_uuid " +
+                    "LEFT JOIN session_stats ss ON ss.player_uuid = b.player_uuid " +
                     "ORDER BY last_seen DESC LIMIT ?";
                 try (PreparedStatement statement = conn.prepareStatement(sql)) {
                     statement.setInt(1, limit);
@@ -131,7 +144,12 @@ public final class PlayerAnalyticsDb {
                             json.append("\"playerName\":").append(toJsonString(rs.getString("player_name"))).append(",");
                             json.append("\"lastSeen\":").append(toJsonString(rs.getString("last_seen"))).append(",");
                             json.append("\"joins\":").append(rs.getLong("joins")).append(",");
-                            json.append("\"leaves\":").append(rs.getLong("leaves"));
+                            json.append("\"leaves\":").append(rs.getLong("leaves")).append(",");
+                            long kills = rs.getLong("kills");
+                            long deaths = rs.getLong("deaths");
+                            json.append("\"kills\":").append(kills).append(",");
+                            json.append("\"deaths\":").append(deaths).append(",");
+                            json.append("\"kdRatio\":").append(formatKdRatio(kills, deaths));
                             json.append("}");
                         }
                         json.append("]");
@@ -159,6 +177,14 @@ public final class PlayerAnalyticsDb {
         }
     }
 
+    public static void recordKill(ServerPlayer player) {
+        updateStats(player, true);
+    }
+
+    public static void recordDeath(ServerPlayer player) {
+        updateStats(player, false);
+    }
+
     private static Connection init() throws SQLException {
         synchronized (LOCK) {
             if (connection != null) {
@@ -184,6 +210,15 @@ public final class PlayerAnalyticsDb {
                         "event_time_utc TEXT NOT NULL" +
                     ")"
                 );
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS player_stats (" +
+                        "player_uuid TEXT PRIMARY KEY, " +
+                        "player_name TEXT NOT NULL, " +
+                        "kills INTEGER NOT NULL DEFAULT 0, " +
+                        "deaths INTEGER NOT NULL DEFAULT 0, " +
+                        "last_seen TEXT" +
+                    ")"
+                );
             }
 
             return connection;
@@ -201,5 +236,45 @@ public final class PlayerAnalyticsDb {
             .replace("\r", "\\r")
             .replace("\t", "\\t");
         return "\"" + escaped + "\"";
+    }
+
+    private static void updateStats(ServerPlayer player, boolean isKill) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql;
+                if (isKill) {
+                    sql = "INSERT INTO player_stats (player_uuid, player_name, kills, deaths, last_seen) " +
+                        "VALUES (?, ?, 1, 0, ?) " +
+                        "ON CONFLICT(player_uuid) DO UPDATE SET " +
+                        "player_name=excluded.player_name, " +
+                        "kills=player_stats.kills + 1, " +
+                        "last_seen=excluded.last_seen";
+                } else {
+                    sql = "INSERT INTO player_stats (player_uuid, player_name, kills, deaths, last_seen) " +
+                        "VALUES (?, ?, 0, 1, ?) " +
+                        "ON CONFLICT(player_uuid) DO UPDATE SET " +
+                        "player_name=excluded.player_name, " +
+                        "deaths=player_stats.deaths + 1, " +
+                        "last_seen=excluded.last_seen";
+                }
+                try (PreparedStatement statement = conn.prepareStatement(sql)) {
+                    statement.setString(1, player.getUUID().toString());
+                    statement.setString(2, player.getGameProfile().getName());
+                    statement.setString(3, Instant.now().toString());
+                    statement.executeUpdate();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to update player stats", ex);
+            }
+        }
+    }
+
+    private static String formatKdRatio(long kills, long deaths) {
+        if (deaths == 0) {
+            return kills == 0 ? "0" : String.format(java.util.Locale.US, "%.2f", (double) kills);
+        }
+        double ratio = (double) kills / (double) deaths;
+        return String.format(java.util.Locale.US, "%.2f", ratio);
     }
 }
