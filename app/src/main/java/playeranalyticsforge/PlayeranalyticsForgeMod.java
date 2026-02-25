@@ -7,7 +7,7 @@ import org.slf4j.Logger;
 @Mod(PlayeranalyticsForgeMod.MOD_ID)
 public class PlayeranalyticsForgeMod {
     public static final String MOD_ID = "playeranalytics";
-    private static final Logger LOGGER = LogUtils.getLogger();
+    public static final Logger LOGGER = LogUtils.getLogger();
 
     public PlayeranalyticsForgeMod() {
         LOGGER.info("{} initialized", MOD_ID);

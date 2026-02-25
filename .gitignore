@@ -3,3 +3,8 @@
 
 # Ignore Gradle build output directory
 build
+
+# Ignore Forge runtime output
+app/run/
+app/logs/
+app/crash-reports/
