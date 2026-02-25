@@ -17,6 +17,7 @@ public final class PlayerEvents {
     public static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             PlayerAnalyticsDb.recordEvent("join", player);
+            PlayerAnalyticsDb.startSession(player);
             PlayeranalyticsForgeMod.LOGGER.info("Player joined: {} ({})", player.getGameProfile().getName(), player.getUUID());
         }
     }
@@ -25,6 +26,7 @@ public final class PlayerEvents {
     public static void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             PlayerAnalyticsDb.recordEvent("leave", player);
+            PlayerAnalyticsDb.endSession(player);
             PlayeranalyticsForgeMod.LOGGER.info("Player left: {} ({})", player.getGameProfile().getName(), player.getUUID());
         }
     }

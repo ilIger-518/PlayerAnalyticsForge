@@ -12,10 +12,14 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
+import java.time.Duration;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class PlayerAnalyticsDb {
     private static final Object LOCK = new Object();
     private static Connection connection;
+    private static final ConcurrentHashMap<UUID, Instant> activeSessions = new ConcurrentHashMap<>();
 
     private PlayerAnalyticsDb() {
     }
@@ -54,18 +58,32 @@ public final class PlayerAnalyticsDb {
                         long leaves = rs.getLong("leaves");
                         long uniquePlayers = rs.getLong("unique_players");
                         String lastEvent = rs.getString("last_event_time");
-                        return "{" +
-                            "\"joins\":" + joins + "," +
-                            "\"leaves\":" + leaves + "," +
-                            "\"uniquePlayers\":" + uniquePlayers + "," +
-                            "\"lastEvent\":" + toJsonString(lastEvent) +
-                            "}";
+                        
+                        // Get session stats
+                        String sessionSql = "SELECT COUNT(*) AS total_sessions, AVG(duration_seconds) AS avg_duration FROM player_session_data";
+                        try (Statement sessionStmt = conn.createStatement(); ResultSet sessionRs = sessionStmt.executeQuery(sessionSql)) {
+                            long totalSessions = 0;
+                            long avgDuration = 0;
+                            if (sessionRs.next()) {
+                                totalSessions = sessionRs.getLong("total_sessions");
+                                avgDuration = sessionRs.getLong("avg_duration");
+                            }
+                            
+                            return "{" +
+                                "\"joins\":" + joins + "," +
+                                "\"leaves\":" + leaves + "," +
+                                "\"uniquePlayers\":" + uniquePlayers + "," +
+                                "\"lastEvent\":" + toJsonString(lastEvent) + "," +
+                                "\"totalSessions\":" + totalSessions + "," +
+                                "\"avgSessionDuration\":" + avgDuration +
+                                "}";
+                        }
                     }
                 }
             } catch (SQLException ex) {
                 PlayeranalyticsForgeMod.LOGGER.error("Failed to query summary", ex);
             }
-            return "{\"joins\":0,\"leaves\":0,\"uniquePlayers\":0,\"lastEvent\":null}";
+            return "{\"joins\":0,\"leaves\":0,\"uniquePlayers\":0,\"lastEvent\":null,\"totalSessions\":0,\"avgSessionDuration\":0}";
         }
     }
 
@@ -318,9 +336,95 @@ public final class PlayerAnalyticsDb {
                         "UNIQUE(killer_uuid, victim_type, victim_name)" +
                     ")"
                 );
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS player_session_data (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "player_uuid TEXT NOT NULL, " +
+                        "player_name TEXT NOT NULL, " +
+                        "session_start TEXT NOT NULL, " +
+                        "session_end TEXT NOT NULL, " +
+                        "duration_seconds INTEGER NOT NULL" +
+                    ")"
+                );
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_session_player ON player_session_data(player_uuid)"
+                );
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_session_start ON player_session_data(session_start)"
+                );
             }
 
             return connection;
+        }
+    }
+
+    public static void startSession(ServerPlayer player) {
+        activeSessions.put(player.getUUID(), Instant.now());
+        PlayeranalyticsForgeMod.LOGGER.debug("Started session for player: {} ({})", player.getGameProfile().getName(), player.getUUID());
+    }
+
+    public static void endSession(ServerPlayer player) {
+        Instant startTime = activeSessions.remove(player.getUUID());
+        if (startTime == null) {
+            PlayeranalyticsForgeMod.LOGGER.warn("No session start time found for player: {}", player.getGameProfile().getName());
+            return;
+        }
+
+        Instant endTime = Instant.now();
+        long durationSeconds = Duration.between(startTime, endTime).getSeconds();
+
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "INSERT INTO player_session_data (player_uuid, player_name, session_start, session_end, duration_seconds) VALUES (?, ?, ?, ?, ?)";
+                try (PreparedStatement statement = conn.prepareStatement(sql)) {
+                    statement.setString(1, player.getUUID().toString());
+                    statement.setString(2, player.getGameProfile().getName());
+                    statement.setString(3, startTime.toString());
+                    statement.setString(4, endTime.toString());
+                    statement.setLong(5, durationSeconds);
+                    statement.executeUpdate();
+                    PlayeranalyticsForgeMod.LOGGER.info("Recorded session for {}: {} seconds", player.getGameProfile().getName(), durationSeconds);
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to record session", ex);
+            }
+        }
+    }
+
+    public static String getSessionsJson(int limit) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT player_uuid, player_name, session_start, session_end, duration_seconds " +
+                    "FROM player_session_data ORDER BY session_end DESC LIMIT ?";
+                try (PreparedStatement statement = conn.prepareStatement(sql)) {
+                    statement.setInt(1, limit);
+                    try (ResultSet rs = statement.executeQuery()) {
+                        StringBuilder json = new StringBuilder();
+                        json.append("[");
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) {
+                                json.append(",");
+                            }
+                            first = false;
+                            json.append("{");
+                            json.append("\"playerUuid\":").append(toJsonString(rs.getString("player_uuid"))).append(",");
+                            json.append("\"playerName\":").append(toJsonString(rs.getString("player_name"))).append(",");
+                            json.append("\"sessionStart\":").append(toJsonString(rs.getString("session_start"))).append(",");
+                            json.append("\"sessionEnd\":").append(toJsonString(rs.getString("session_end"))).append(",");
+                            json.append("\"durationSeconds\":").append(rs.getLong("duration_seconds"));
+                            json.append("}");
+                        }
+                        json.append("]");
+                        return json.toString();
+                    }
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to query sessions", ex);
+            }
+            return "[]";
         }
     }
 

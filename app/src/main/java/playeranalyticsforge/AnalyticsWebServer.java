@@ -41,6 +41,7 @@ public final class AnalyticsWebServer {
             server.createContext("/api/events", exchange -> handleJson(exchange, PlayerAnalyticsDb.getRecentEventsJson(readLimit(exchange))));
             server.createContext("/api/players", exchange -> handleJson(exchange, PlayerAnalyticsDb.getPlayersJson(readLimit(exchange))));
             server.createContext("/api/kills", exchange -> handleJson(exchange, PlayerAnalyticsDb.getKillDetailsJson(readLimit(exchange))));
+            server.createContext("/api/sessions", exchange -> handleJson(exchange, PlayerAnalyticsDb.getSessionsJson(readLimit(exchange))));
             server.setExecutor(null);
             server.start();
             PlayeranalyticsForgeMod.LOGGER.info("Analytics web UI running at http://{}:{}", HOST, PORT);
@@ -209,6 +210,7 @@ public final class AnalyticsWebServer {
                 <div class=\"stat\" id=\"summary-joins\">0 joins</div>
                 <div class=\"stat\" id=\"summary-leaves\">0 leaves</div>
                 <div class=\"stat\" id=\"summary-unique\">0 unique players</div>
+                <p id=\"summary-sessions\" style=\"margin-top: 8px;\">Sessions: 0 (avg 0s)</p>
                 <p id=\"summary-last\">Last event: -</p>
               </section>
               <section class=\"card\">
@@ -240,6 +242,20 @@ public final class AnalyticsWebServer {
                   </thead>
                   <tbody id=\"players-body\"></tbody>
                 </table>
+              </section>
+              <section class=\"card\">
+                <div class=\"pill\">Recent Sessions</div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Duration</th>
+                      <th>Start (UTC)</th>
+                      <th>End (UTC)</th>
+                    </tr>
+                  </thead>
+                  <tbody id=\"sessions-body\"></tbody>
+                </table>
               </section>              <section class="card">
                 <div class="pill">Kill Details</div>
                 <table>
@@ -262,6 +278,9 @@ public final class AnalyticsWebServer {
                 document.getElementById("summary-joins").textContent = `${data.joins} joins`;
                 document.getElementById("summary-leaves").textContent = `${data.leaves} leaves`;
                 document.getElementById("summary-unique").textContent = `${data.uniquePlayers} unique players`;
+                const avgMinutes = Math.floor(data.avgSessionDuration / 60);
+                const avgSeconds = data.avgSessionDuration % 60;
+                document.getElementById("summary-sessions").textContent = `Sessions: ${data.totalSessions} (avg ${avgMinutes}m ${avgSeconds}s)`;
                 document.getElementById("summary-last").textContent = `Last event: ${data.lastEvent ?? "-"}`;
               }
 
@@ -302,8 +321,23 @@ public final class AnalyticsWebServer {
                 });
               }
 
+              async function loadSessions() {
+                const res = await fetch("/api/sessions?limit=25");
+                const data = await res.json();
+                const body = document.getElementById("sessions-body");
+                body.innerHTML = "";
+                data.forEach(session => {
+                  const row = document.createElement("tr");
+                  const durationMinutes = Math.floor(session.durationSeconds / 60);
+                  const durationSeconds = session.durationSeconds % 60;
+                  const durationDisplay = `${durationMinutes}m ${durationSeconds}s`;
+                  row.innerHTML = `<td>${session.playerName}</td><td>${durationDisplay}</td><td>${session.sessionStart}</td><td>${session.sessionEnd}</td>`;
+                  body.appendChild(row);
+                });
+              }
+
               async function refreshAll() {
-                await Promise.all([loadSummary(), loadEvents(), loadPlayers(), loadKills()]);
+                await Promise.all([loadSummary(), loadEvents(), loadPlayers(), loadSessions(), loadKills()]);
               }
 
               refreshAll();
