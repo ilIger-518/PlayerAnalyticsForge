@@ -601,6 +601,106 @@ public final class PlayerAnalyticsDb {
                 statement.executeUpdate(
                     "CREATE INDEX IF NOT EXISTS idx_session_start ON player_session_data(session_start)"
                 );
+                
+                // Add combat stats columns to existing tables (migration)
+                try (ResultSet rs = connection.getMetaData().getColumns(null, null, "kill_details", "weapon_used")) {
+                    if (!rs.next()) {
+                        statement.executeUpdate("ALTER TABLE kill_details ADD COLUMN weapon_used TEXT DEFAULT 'Unknown'");
+                        PlayeranalyticsForgeMod.LOGGER.info("Added weapon_used column to kill_details table");
+                    }
+                } catch (SQLException migrationEx) {
+                    PlayeranalyticsForgeMod.LOGGER.debug("weapon_used column already exists or migration not needed");
+                }
+                
+                try (ResultSet rs = connection.getMetaData().getColumns(null, null, "kill_details", "is_pvp")) {
+                    if (!rs.next()) {
+                        statement.executeUpdate("ALTER TABLE kill_details ADD COLUMN is_pvp INTEGER NOT NULL DEFAULT 0");
+                        PlayeranalyticsForgeMod.LOGGER.info("Added is_pvp column to kill_details table");
+                    }
+                } catch (SQLException migrationEx) {
+                    PlayeranalyticsForgeMod.LOGGER.debug("is_pvp column already exists or migration not needed");
+                }
+                
+                try (ResultSet rs = connection.getMetaData().getColumns(null, null, "player_stats", "pvp_kills")) {
+                    if (!rs.next()) {
+                        statement.executeUpdate("ALTER TABLE player_stats ADD COLUMN pvp_kills INTEGER NOT NULL DEFAULT 0");
+                        PlayeranalyticsForgeMod.LOGGER.info("Added pvp_kills column to player_stats table");
+                    }
+                } catch (SQLException migrationEx) {
+                    PlayeranalyticsForgeMod.LOGGER.debug("pvp_kills column already exists or migration not needed");
+                }
+                
+                try (ResultSet rs = connection.getMetaData().getColumns(null, null, "player_stats", "pve_kills")) {
+                    if (!rs.next()) {
+                        statement.executeUpdate("ALTER TABLE player_stats ADD COLUMN pve_kills INTEGER NOT NULL DEFAULT 0");
+                        PlayeranalyticsForgeMod.LOGGER.info("Added pve_kills column to player_stats table");
+                    }
+                } catch (SQLException migrationEx) {
+                    PlayeranalyticsForgeMod.LOGGER.debug("pve_kills column already exists or migration not needed");
+                }
+                
+                try (ResultSet rs = connection.getMetaData().getColumns(null, null, "player_stats", "kill_streak")) {
+                    if (!rs.next()) {
+                        statement.executeUpdate("ALTER TABLE player_stats ADD COLUMN kill_streak INTEGER NOT NULL DEFAULT 0");
+                        PlayeranalyticsForgeMod.LOGGER.info("Added kill_streak column to player_stats table");
+                    }
+                } catch (SQLException migrationEx) {
+                    PlayeranalyticsForgeMod.LOGGER.debug("kill_streak column already exists or migration not needed");
+                }
+                
+                try (ResultSet rs = connection.getMetaData().getColumns(null, null, "player_stats", "max_kill_streak")) {
+                    if (!rs.next()) {
+                        statement.executeUpdate("ALTER TABLE player_stats ADD COLUMN max_kill_streak INTEGER NOT NULL DEFAULT 0");
+                        PlayeranalyticsForgeMod.LOGGER.info("Added max_kill_streak column to player_stats table");
+                    }
+                } catch (SQLException migrationEx) {
+                    PlayeranalyticsForgeMod.LOGGER.debug("max_kill_streak column already exists or migration not needed");
+                }
+                
+                // Create new tables for weapon stats and death causes
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS weapon_stats (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "player_uuid TEXT NOT NULL, " +
+                        "weapon_type TEXT NOT NULL, " +
+                        "kill_count INTEGER NOT NULL DEFAULT 0, " +
+                        "UNIQUE(player_uuid, weapon_type)" +
+                    ")"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS death_causes (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "player_uuid TEXT NOT NULL, " +
+                        "cause_type TEXT NOT NULL, " +
+                        "cause_count INTEGER NOT NULL DEFAULT 0, " +
+                        "last_death_time TEXT NOT NULL, " +
+                        "UNIQUE(player_uuid, cause_type)" +
+                    ")"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS player_kill_matrix (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "killer_uuid TEXT NOT NULL, " +
+                        "victim_uuid TEXT NOT NULL, " +
+                        "kill_count INTEGER NOT NULL DEFAULT 0, " +
+                        "last_kill_time TEXT NOT NULL, " +
+                        "UNIQUE(killer_uuid, victim_uuid)" +
+                    ")"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_weapon_player ON weapon_stats(player_uuid)"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_death_cause_player ON death_causes(player_uuid)"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_kill_matrix_killer ON player_kill_matrix(killer_uuid)"
+                );
             }
 
             return connection;
@@ -850,5 +950,237 @@ public final class PlayerAnalyticsDb {
         }
         double ratio = (double) kills / (double) deaths;
         return String.format(java.util.Locale.US, "%.2f", ratio);
+    }
+
+    public static void recordWeaponUsage(String killerUuid, String killerName, String weaponType) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "INSERT INTO weapon_stats (player_uuid, weapon_type, kill_count) " +
+                    "VALUES (?, ?, 1) " +
+                    "ON CONFLICT(player_uuid, weapon_type) DO UPDATE SET " +
+                    "kill_count = kill_count + 1";
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, killerUuid);
+                    stmt.setString(2, weaponType);
+                    stmt.executeUpdate();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to record weapon usage", ex);
+            }
+        }
+    }
+
+    public static void recordDeathCause(String playerUuid, String playerName, String causeType) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "INSERT INTO death_causes (player_uuid, cause_type, cause_count, last_death_time) " +
+                    "VALUES (?, ?, 1, ?) " +
+                    "ON CONFLICT(player_uuid, cause_type) DO UPDATE SET " +
+                    "cause_count = cause_count + 1, " +
+                    "last_death_time = excluded.last_death_time";
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, playerUuid);
+                    stmt.setString(2, causeType);
+                    stmt.setString(3, java.time.Instant.now().toString());
+                    stmt.executeUpdate();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to record death cause", ex);
+            }
+        }
+    }
+
+    public static void recordPlayerKillMatrix(String killerUuid, String victimUuid) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "INSERT INTO player_kill_matrix (killer_uuid, victim_uuid, kill_count, last_kill_time) " +
+                    "VALUES (?, ?, 1, ?) " +
+                    "ON CONFLICT(killer_uuid, victim_uuid) DO UPDATE SET " +
+                    "kill_count = kill_count + 1, " +
+                    "last_kill_time = excluded.last_kill_time";
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, killerUuid);
+                    stmt.setString(2, victimUuid);
+                    stmt.setString(3, java.time.Instant.now().toString());
+                    stmt.executeUpdate();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to record player kill matrix", ex);
+            }
+        }
+    }
+
+    public static void recordKillStreak(String killerUuid) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                
+                // Update current kill streak
+                String updateStreakSql = "INSERT INTO player_stats (player_uuid, player_name, kill_streak, max_kill_streak) " +
+                    "VALUES (?, 'Unknown', 1, 1) " +
+                    "ON CONFLICT(player_uuid) DO UPDATE SET " +
+                    "kill_streak = kill_streak + 1, " +
+                    "max_kill_streak = MAX(kill_streak + 1, max_kill_streak)";
+                try (PreparedStatement stmt = conn.prepareStatement(updateStreakSql)) {
+                    stmt.setString(1, killerUuid);
+                    stmt.executeUpdate();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to record kill streak", ex);
+            }
+        }
+    }
+
+    public static void resetKillStreak(String playerUuid) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "UPDATE player_stats SET kill_streak = 0 WHERE player_uuid = ?";
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, playerUuid);
+                    stmt.executeUpdate();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to reset kill streak", ex);
+            }
+        }
+    }
+
+    public static String getWeaponStatsJson() {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT w.player_uuid, w.weapon_type, w.kill_count, p.player_name " +
+                    "FROM weapon_stats w " +
+                    "LEFT JOIN player_stats p ON w.player_uuid = p.player_uuid " +
+                    "ORDER BY w.player_uuid, w.kill_count DESC";
+                
+                StringBuilder json = new StringBuilder("[");
+                try (Statement stmt = conn.createStatement();
+                     ResultSet rs = stmt.executeQuery(sql)) {
+                    boolean first = true;
+                    while (rs.next()) {
+                        if (!first) json.append(",");
+                        json.append("{\"player_uuid\":\"").append(rs.getString("player_uuid"))
+                            .append("\",\"player_name\":\"").append(rs.getString("player_name"))
+                            .append("\",\"weapon\":\"").append(rs.getString("weapon_type"))
+                            .append("\",\"kills\":").append(rs.getInt("kill_count"))
+                            .append("}");
+                        first = false;
+                    }
+                }
+                json.append("]");
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get weapon stats", ex);
+                return "[]";
+            }
+        }
+    }
+
+    public static String getCombatStatsJson() {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT player_uuid, player_name, kills, deaths, pvp_kills, pve_kills, kill_streak, max_kill_streak " +
+                    "FROM player_stats " +
+                    "ORDER BY kills DESC";
+                
+                StringBuilder json = new StringBuilder("[");
+                try (Statement stmt = conn.createStatement();
+                     ResultSet rs = stmt.executeQuery(sql)) {
+                    boolean first = true;
+                    while (rs.next()) {
+                        if (!first) json.append(",");
+                        int totalKills = rs.getInt("kills");
+                        double pvpRatio = totalKills > 0 ? (double) rs.getInt("pvp_kills") / totalKills * 100 : 0;
+                        json.append("{\"player_uuid\":\"").append(rs.getString("player_uuid"))
+                            .append("\",\"player_name\":\"").append(rs.getString("player_name"))
+                            .append("\",\"total_kills\":").append(totalKills)
+                            .append(",\"pvp_kills\":").append(rs.getInt("pvp_kills"))
+                            .append(",\"pve_kills\":").append(rs.getInt("pve_kills"))
+                            .append(",\"pvp_ratio\":").append(String.format("%.1f", pvpRatio))
+                            .append(",\"deaths\":").append(rs.getInt("deaths"))
+                            .append(",\"kill_streak\":").append(rs.getInt("kill_streak"))
+                            .append(",\"max_kill_streak\":").append(rs.getInt("max_kill_streak"))
+                            .append(",\"kd_ratio\":\"").append(formatKdRatio(totalKills, rs.getInt("deaths")))
+                            .append("\"}");
+                        first = false;
+                    }
+                }
+                json.append("]");
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get combat stats", ex);
+                return "[]";
+            }
+        }
+    }
+
+    public static String getDeathCausesJson(String playerUuid) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT cause_type, cause_count FROM death_causes WHERE player_uuid = ? ORDER BY cause_count DESC";
+                
+                StringBuilder json = new StringBuilder("[");
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, playerUuid);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) json.append(",");
+                            json.append("{\"cause\":\"").append(rs.getString("cause_type"))
+                                .append("\",\"count\":").append(rs.getInt("cause_count"))
+                                .append("}");
+                            first = false;
+                        }
+                    }
+                }
+                json.append("]");
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get death causes", ex);
+                return "[]";
+            }
+        }
+    }
+
+    public static String getKillMatrixJson(String killerUuid) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT pkm.victim_uuid, p.player_name, pkm.kill_count, pkm.last_kill_time " +
+                    "FROM player_kill_matrix pkm " +
+                    "LEFT JOIN player_stats p ON pkm.victim_uuid = p.player_uuid " +
+                    "WHERE pkm.killer_uuid = ? " +
+                    "ORDER BY pkm.kill_count DESC";
+                
+                StringBuilder json = new StringBuilder("[");
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, killerUuid);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) json.append(",");
+                            json.append("{\"victim_uuid\":\"").append(rs.getString("victim_uuid"))
+                                .append("\",\"victim_name\":\"").append(rs.getString("player_name"))
+                                .append("\",\"kill_count\":").append(rs.getInt("kill_count"))
+                                .append(",\"last_kill\":\"").append(rs.getString("last_kill_time"))
+                                .append("\"}");
+                            first = false;
+                        }
+                    }
+                }
+                json.append("]");
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get kill matrix", ex);
+                return "[]";
+            }
+        }
     }
 }

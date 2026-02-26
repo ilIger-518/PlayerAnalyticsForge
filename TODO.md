@@ -28,13 +28,13 @@
 - [ ] Player churn analysis
 
 ### Combat Statistics
-- [ ] Separate PvP and PvE kills
-- [ ] Weapon usage tracking
-- [ ] Mob kill breakdown by type
-- [ ] Death causes tracking
-- [ ] Player vs player kill matrix
-- [ ] Longest kill streak tracking
-- [ ] Most deadly player rankings
+- [x] Separate PvP and PvE kills
+- [x] Weapon usage tracking
+- [x] Mob kill breakdown by type
+- [x] Death causes tracking
+- [x] Player vs player kill matrix
+- [x] Longest kill streak tracking
+- [x] Most deadly player rankings
 
 ## 📊 Web Dashboard Enhancements
 

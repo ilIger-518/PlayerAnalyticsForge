@@ -45,6 +45,10 @@ public final class AnalyticsWebServer {
             server.createContext("/api/playtime", exchange -> handleJson(exchange, PlayerAnalyticsDb.getPlaytimeDetailsJson()));
             server.createContext("/api/metrics", exchange -> handleJson(exchange, PlayerAnalyticsDb.getServerMetricsJson()));
             server.createContext("/api/metrics/history", exchange -> handleJson(exchange, PlayerAnalyticsDb.getMetricsHistoryJson(readLimit(exchange))));
+            server.createContext("/api/combat", exchange -> handleJson(exchange, PlayerAnalyticsDb.getCombatStatsJson()));
+            server.createContext("/api/weapons", exchange -> handleJson(exchange, PlayerAnalyticsDb.getWeaponStatsJson()));
+            server.createContext("/api/combat/deaths/", new DeathCausesHandler());
+            server.createContext("/api/combat/matrix/", new KillMatrixHandler());
             server.createContext("/api/player/", new PlayerHandler());
             server.createContext("/player/", new PlayerPageHandler());
             server.setExecutor(null);
@@ -309,7 +313,45 @@ public final class AnalyticsWebServer {
                   </thead>
                   <tbody id=\"playtime-body\"></tbody>
                 </table>
-              </section>              <section class="card">
+              </section>              <section class=\"card card-full\">
+                <div class=\"pill\">Combat Statistics</div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Total Kills</th>
+                      <th>PvP Kills</th>
+                      <th>PvE Kills</th>
+                      <th>PvP Ratio</th>
+                      <th>Deaths</th>
+                      <th>K/D Ratio</th>
+                      <th>Kill Streak</th>
+                      <th>Max Streak</th>
+                    </tr>
+                  </thead>
+                  <tbody id=\"combat-body\"></tbody>
+                </table>
+              </section>
+              <section class=\"card card-half\">
+                <div class=\"pill\">Weapon Usage</div>
+                <div style=\"position: relative; height: 250px;\">
+                  <canvas id=\"weaponChart\"></canvas>
+                </div>
+              </section>
+              <section class=\"card card-half\">
+                <div class=\"pill\">Top Kill Streaks</div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Current</th>
+                      <th>Record</th>
+                    </tr>
+                  </thead>
+                  <tbody id=\"streaks-body\"></tbody>
+                </table>
+              </section>
+              <section class="card">
                 <div class="pill">Kill Details</div>
                 <table>
                   <thead>
@@ -504,8 +546,89 @@ public final class AnalyticsWebServer {
                   }
                 });
               }
+
+              let weaponChartInstance = null;
+
+              async function loadCombatStats() {
+                const res = await fetch(\"/api/combat\");
+                const data = await res.json();
+                const body = document.getElementById(\"combat-body\");
+                body.innerHTML = \"\";
+                data.forEach(player => {
+                  const row = document.createElement(\"tr\");
+                  row.innerHTML = `<td>${player.player_name}</td><td>${player.total_kills}</td><td>${player.pvp_kills}</td><td>${player.pve_kills}</td><td>${player.pvp_ratio}%</td><td>${player.deaths}</td><td>${player.kd_ratio}</td><td>${player.kill_streak}</td><td>${player.max_kill_streak}</td>`;
+                  body.appendChild(row);
+                });
+
+                // Load kill streaks table
+                const streaksBody = document.getElementById(\"streaks-body\");
+                streaksBody.innerHTML = \"\";
+                // Sort by max kill streak and take top 10
+                const topStreaks = data.sort((a, b) => b.max_kill_streak - a.max_kill_streak).slice(0, 10);
+                topStreaks.forEach(player => {
+                  const row = document.createElement(\"tr\");
+                  row.innerHTML = `<td>${player.player_name}</td><td>${player.kill_streak}</td><td>${player.max_kill_streak}</td>`;
+                  streaksBody.appendChild(row);
+                });
+              }
+
+              async function loadWeaponChart() {
+                const res = await fetch(\"/api/weapons\");
+                const data = await res.json();
+                if (data.length === 0) return;
+
+                // Aggregate weapons across all players and take top 10 most used
+                const weaponMap = {};
+                data.forEach(w => {
+                  if (!weaponMap[w.weapon]) {
+                    weaponMap[w.weapon] = 0;
+                  }
+                  weaponMap[w.weapon] += w.kills;
+                });
+
+                const sortedWeapons = Object.entries(weaponMap)
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 10);
+
+                const ctx = document.getElementById(\"weaponChart\").getContext(\"2d\");
+                if (weaponChartInstance) {
+                  weaponChartInstance.destroy();
+                }
+                weaponChartInstance = new Chart(ctx, {
+                  type: \"bar\",
+                  data: {
+                    labels: sortedWeapons.map(w => w[0]),
+                    datasets: [{
+                      label: \"Kills\",
+                      data: sortedWeapons.map(w => w[1]),
+                      backgroundColor: \"#FF6384\",
+                      borderColor: \"#FF6384\",
+                      borderWidth: 1
+                    }]
+                  },
+                  options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: \"y\",
+                    plugins: {
+                      legend: {
+                        display: false
+                      }
+                    },
+                    scales: {
+                      x: {
+                        beginAtZero: true,
+                        ticks: {
+                          stepSize: 1
+                        }
+                      }
+                    }
+                  }
+                });
+              }
+
               async function refreshAll() {
-                await Promise.all([loadSummary(), loadEvents(), loadPlayers(), loadSessions(), loadKills(), loadPlaytimeDetails(), loadPlaytimeChart(), loadKillsChart(), loadServerMetrics()]);
+                await Promise.all([loadSummary(), loadEvents(), loadPlayers(), loadSessions(), loadKills(), loadPlaytimeDetails(), loadPlaytimeChart(), loadKillsChart(), loadServerMetrics(), loadCombatStats(), loadWeaponChart()]);
               }
 
               refreshAll();
@@ -727,4 +850,36 @@ public final class AnalyticsWebServer {
           </body>
         </html>
         """;
+
+    static class DeathCausesHandler implements com.sun.net.httpserver.HttpHandler {
+        @Override
+        public void handle(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+            String path = exchange.getRequestURI().getPath();
+            String playerUuid = path.replace("/api/combat/deaths/", "");
+            
+            if (playerUuid.isEmpty()) {
+                handleJson(exchange, "[]");
+                return;
+            }
+            
+            String json = PlayerAnalyticsDb.getDeathCausesJson(playerUuid);
+            handleJson(exchange, json);
+        }
+    }
+
+    static class KillMatrixHandler implements com.sun.net.httpserver.HttpHandler {
+        @Override
+        public void handle(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+            String path = exchange.getRequestURI().getPath();
+            String killerUuid = path.replace("/api/combat/matrix/", "");
+            
+            if (killerUuid.isEmpty()) {
+                handleJson(exchange, "[]");
+                return;
+            }
+            
+            String json = PlayerAnalyticsDb.getKillMatrixJson(killerUuid);
+            handleJson(exchange, json);
+        }
+    }
 }

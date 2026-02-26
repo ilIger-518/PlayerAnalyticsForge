@@ -1,6 +1,8 @@
 package playeranalyticsforge;
 
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
@@ -44,23 +46,88 @@ public final class PlayerEvents {
         if (event.getEntity() instanceof ServerPlayer victim) {
             PlayerAnalyticsDb.recordDeath(victim);
             PlayerAnalyticsDb.recordPlayerActivity(victim.getUUID());
+            
+            // Record death cause
+            String deathCause = getDeathCause(event.getSource());
+            PlayerAnalyticsDb.recordDeathCause(victim.getUUID().toString(), victim.getGameProfile().getName(), deathCause);
+            
+            // Reset kill streak on death
+            PlayerAnalyticsDb.resetKillStreak(victim.getUUID().toString());
         }
 
         if (event.getSource().getEntity() instanceof ServerPlayer killer) {
             String victimType = event.getEntity().getType().getDescription().getString();
             String victimName = null;
+            boolean isPvP = false;
             
             if (event.getEntity() instanceof ServerPlayer victim) {
                 if (victim.getUUID().equals(killer.getUUID())) {
                     return;
                 }
                 victimName = victim.getGameProfile().getName();
+                isPvP = true;
             }
+            
+            // Get weapon used
+            String weaponUsed = getWeaponName(killer, event.getSource());
             
             PlayerAnalyticsDb.recordKill(killer);
             PlayerAnalyticsDb.recordKillDetail(killer, victimType, victimName);
+            PlayerAnalyticsDb.recordWeaponUsage(killer.getUUID().toString(), killer.getGameProfile().getName(), weaponUsed);
+            PlayerAnalyticsDb.recordKillStreak(killer.getUUID().toString());
+            
+            // Record PvP or PvE kill
+            if (isPvP) {
+                PlayerAnalyticsDb.recordPlayerKillMatrix(killer.getUUID().toString(), ((ServerPlayer) event.getEntity()).getUUID().toString());
+                // Update PvP kills in player_stats
+                try {
+                    java.sql.Connection conn = java.sql.DriverManager.getConnection("jdbc:sqlite:./analytics.db");
+                    try (java.sql.Statement stmt = conn.createStatement()) {
+                        stmt.executeUpdate("UPDATE player_stats SET pvp_kills = pvp_kills + 1 WHERE player_uuid = '" + killer.getUUID().toString() + "'");
+                    }
+                    conn.close();
+                } catch (java.sql.SQLException ex) {
+                    PlayeranalyticsForgeMod.LOGGER.debug("Failed to update PvP kills", ex);
+                }
+            } else {
+                // Update PvE kills in player_stats
+                try {
+                    java.sql.Connection conn = java.sql.DriverManager.getConnection("jdbc:sqlite:./analytics.db");
+                    try (java.sql.Statement stmt = conn.createStatement()) {
+                        stmt.executeUpdate("UPDATE player_stats SET pve_kills = pve_kills + 1 WHERE player_uuid = '" + killer.getUUID().toString() + "'");
+                    }
+                    conn.close();
+                } catch (java.sql.SQLException ex) {
+                    PlayeranalyticsForgeMod.LOGGER.debug("Failed to update PvE kills", ex);
+                }
+            }
+            
             PlayerAnalyticsDb.recordPlayerActivity(killer.getUUID());
         }
+    }
+
+    private static String getWeaponName(ServerPlayer player, DamageSource source) {
+        // Try to get weapon from player's main hand
+        ItemStack mainHand = player.getMainHandItem();
+        if (!mainHand.isEmpty()) {
+            return mainHand.getHoverName().getString();
+        }
+        
+        // Try to get from damage source description
+        String sourceName = source.getMsgId();
+        if (sourceName != null && !sourceName.isEmpty()) {
+            return sourceName;
+        }
+        
+        return "Unknown";
+    }
+
+    private static String getDeathCause(DamageSource source) {
+        String msgId = source.getMsgId();
+        if (msgId != null && !msgId.isEmpty()) {
+            return msgId;
+        }
+        return "Unknown";
     }
 
     @SubscribeEvent
