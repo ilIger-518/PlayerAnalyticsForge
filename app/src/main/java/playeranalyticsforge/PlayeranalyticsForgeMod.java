@@ -10,6 +10,9 @@ public class PlayeranalyticsForgeMod {
     public static final Logger LOGGER = LogUtils.getLogger();
 
     public PlayeranalyticsForgeMod() {
+        // Register configuration
+        AnalyticsConfig.register();
+        
         LOGGER.info("{} initialized", MOD_ID);
     }
 }

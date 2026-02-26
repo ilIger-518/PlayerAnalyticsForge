@@ -142,11 +142,13 @@
 ## ⚙️ Configuration & Customization
 
 ### Config File
-- [ ] Web server host/port configuration
-- [ ] Access token/authentication for web UI
-- [ ] IP allowlist for web access
-- [ ] Enable/disable specific features
-- [ ] Data retention settings
+- [x] Web server host/port configuration
+- [x] Enable/disable specific features (combat, sessions, playtime, AFK, activity)
+- [x] Performance settings (refresh intervals, AFK timeout)
+- [x] Data retention settings (with auto-cleanup)
+- [x] Security settings (access token, IP allowlist) - defined but not enforced yet
+- [ ] Implement access token authentication in web server
+- [ ] Implement IP allowlist enforcement in web server
 - [ ] Database connection settings
 - [ ] Webhook URLs and settings
 - [ ] Privacy settings (anonymize IPs, etc.)

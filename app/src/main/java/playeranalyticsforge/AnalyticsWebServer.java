@@ -28,11 +28,20 @@ public final class AnalyticsWebServer {
             if (server != null) {
                 return;
             }
+            
+            // Check if web server is enabled in config
+            if (!AnalyticsConfig.WEB_SERVER_ENABLED.get()) {
+                PlayeranalyticsForgeMod.LOGGER.info("Analytics web server is disabled in config");
+                return;
+            }
+            
+            String host = AnalyticsConfig.WEB_SERVER_HOST.get();
+            int port = AnalyticsConfig.WEB_SERVER_PORT.get();
 
             try {
-                server = HttpServer.create(new InetSocketAddress(HOST, PORT), 0);
+                server = HttpServer.create(new InetSocketAddress(host, port), 0);
             } catch (IOException ex) {
-                PlayeranalyticsForgeMod.LOGGER.error("Failed to start analytics web server", ex);
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to start analytics web server on {}:{}", host, port, ex);
                 return;
             }
 
@@ -58,7 +67,7 @@ public final class AnalyticsWebServer {
             server.createContext("/player/", new PlayerPageHandler());
             server.setExecutor(null);
             server.start();
-            PlayeranalyticsForgeMod.LOGGER.info("Analytics web UI running at http://{}:{}", HOST, PORT);
+            PlayeranalyticsForgeMod.LOGGER.info("Analytics web UI running at http://{}:{}", host, port);
         }
     }
 

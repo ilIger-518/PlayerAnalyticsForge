@@ -1,0 +1,160 @@
+package playeranalyticsforge;
+
+import net.minecraftforge.common.ForgeConfigSpec;
+import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.fml.config.ModConfig;
+
+import java.util.List;
+
+public final class AnalyticsConfig {
+    
+    private static final ForgeConfigSpec.Builder BUILDER = new ForgeConfigSpec.Builder();
+    public static final ForgeConfigSpec SPEC;
+    
+    // Web Server Configuration
+    public static final ForgeConfigSpec.ConfigValue<String> WEB_SERVER_HOST;
+    public static final ForgeConfigSpec.IntValue WEB_SERVER_PORT;
+    public static final ForgeConfigSpec.BooleanValue WEB_SERVER_ENABLED;
+    
+    // Security Configuration
+    public static final ForgeConfigSpec.BooleanValue REQUIRE_AUTH;
+    public static final ForgeConfigSpec.ConfigValue<String> ACCESS_TOKEN;
+    public static final ForgeConfigSpec.ConfigValue<List<? extends String>> IP_ALLOWLIST;
+    
+    // Feature Toggles
+    public static final ForgeConfigSpec.BooleanValue TRACK_PLAYTIME;
+    public static final ForgeConfigSpec.BooleanValue TRACK_COMBAT;
+    public static final ForgeConfigSpec.BooleanValue TRACK_SESSIONS;
+    public static final ForgeConfigSpec.BooleanValue TRACK_AFK;
+    public static final ForgeConfigSpec.BooleanValue TRACK_ACTIVITY;
+    
+    // Performance Configuration
+    public static final ForgeConfigSpec.IntValue DASHBOARD_REFRESH_INTERVAL;
+    public static final ForgeConfigSpec.IntValue METRICS_RECORDING_INTERVAL;
+    public static final ForgeConfigSpec.IntValue ACTIVITY_UPDATE_INTERVAL;
+    public static final ForgeConfigSpec.IntValue AFK_TIMEOUT_SECONDS;
+    
+    // Data Retention Configuration
+    public static final ForgeConfigSpec.IntValue DATA_RETENTION_DAYS;
+    public static final ForgeConfigSpec.BooleanValue AUTO_CLEANUP_ENABLED;
+    public static final ForgeConfigSpec.IntValue CLEANUP_INTERVAL_HOURS;
+    
+    static {
+        BUILDER.comment("PlayerAnalytics Configuration")
+                .push("playeranalytics");
+        
+        // Web Server
+        BUILDER.comment("Web Server Configuration")
+                .push("webserver");
+        
+        WEB_SERVER_HOST = BUILDER
+                .comment("Host address for the web server (0.0.0.0 = all interfaces, 127.0.0.1 = localhost only)")
+                .define("host", "0.0.0.0");
+        
+        WEB_SERVER_PORT = BUILDER
+                .comment("Port for the web server")
+                .defineInRange("port", 8804, 1024, 65535);
+        
+        WEB_SERVER_ENABLED = BUILDER
+                .comment("Enable or disable the web server")
+                .define("enabled", true);
+        
+        BUILDER.pop();
+        
+        // Security
+        BUILDER.comment("Security Configuration")
+                .push("security");
+        
+        REQUIRE_AUTH = BUILDER
+                .comment("Require authentication token for web dashboard access")
+                .define("requireAuth", false);
+        
+        ACCESS_TOKEN = BUILDER
+                .comment("Access token for web dashboard (only used if requireAuth is true)")
+                .define("accessToken", "");
+        
+        IP_ALLOWLIST = BUILDER
+                .comment("List of allowed IP addresses (empty = allow all). Example: [\"127.0.0.1\", \"192.168.1.0/24\"]")
+                .defineList("ipAllowlist", List.of(), obj -> obj instanceof String);
+        
+        BUILDER.pop();
+        
+        // Features
+        BUILDER.comment("Feature Toggles - Enable or disable specific tracking features")
+                .push("features");
+        
+        TRACK_PLAYTIME = BUILDER
+                .comment("Track player playtime and sessions")
+                .define("trackPlaytime", true);
+        
+        TRACK_COMBAT = BUILDER
+                .comment("Track combat statistics (kills, deaths, weapons)")
+                .define("trackCombat", true);
+        
+        TRACK_SESSIONS = BUILDER
+                .comment("Track player sessions (join/leave events)")
+                .define("trackSessions", true);
+        
+        TRACK_AFK = BUILDER
+                .comment("Track AFK time and periods")
+                .define("trackAFK", true);
+        
+        TRACK_ACTIVITY = BUILDER
+                .comment("Track daily activity trends and patterns")
+                .define("trackActivity", true);
+        
+        BUILDER.pop();
+        
+        // Performance
+        BUILDER.comment("Performance Configuration")
+                .push("performance");
+        
+        DASHBOARD_REFRESH_INTERVAL = BUILDER
+                .comment("Dashboard auto-refresh interval in milliseconds")
+                .defineInRange("dashboardRefreshInterval", 5000, 1000, 60000);
+        
+        METRICS_RECORDING_INTERVAL = BUILDER
+                .comment("Server metrics recording interval in ticks (20 ticks = 1 second)")
+                .defineInRange("metricsRecordingInterval", 200, 20, 12000);
+        
+        ACTIVITY_UPDATE_INTERVAL = BUILDER
+                .comment("Activity update interval in ticks (6000 ticks = 5 minutes)")
+                .defineInRange("activityUpdateInterval", 6000, 1200, 72000);
+        
+        AFK_TIMEOUT_SECONDS = BUILDER
+                .comment("Seconds of inactivity before a player is considered AFK")
+                .defineInRange("afkTimeoutSeconds", 300, 60, 3600);
+        
+        BUILDER.pop();
+        
+        // Data Retention
+        BUILDER.comment("Data Retention Configuration")
+                .push("dataRetention");
+        
+        DATA_RETENTION_DAYS = BUILDER
+                .comment("Number of days to keep old data (0 = keep forever)")
+                .defineInRange("retentionDays", 365, 0, 3650);
+        
+        AUTO_CLEANUP_ENABLED = BUILDER
+                .comment("Automatically delete old data based on retention period")
+                .define("autoCleanupEnabled", false);
+        
+        CLEANUP_INTERVAL_HOURS = BUILDER
+                .comment("How often to run cleanup (in hours)")
+                .defineInRange("cleanupIntervalHours", 24, 1, 168);
+        
+        BUILDER.pop();
+        
+        BUILDER.pop();
+        
+        SPEC = BUILDER.build();
+    }
+    
+    private AnalyticsConfig() {
+    }
+    
+    public static void register() {
+        ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, SPEC, "playeranalytics-common.toml");
+        PlayeranalyticsForgeMod.LOGGER.info("Registered PlayerAnalytics configuration");
+    }
+}

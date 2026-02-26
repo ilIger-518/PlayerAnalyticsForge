@@ -13,9 +13,7 @@ import net.minecraftforge.fml.common.Mod;
 @Mod.EventBusSubscriber(modid = PlayeranalyticsForgeMod.MOD_ID)
 public final class PlayerEvents {
     private static long tickCounter = 0;
-    private static final long METRIC_RECORDING_INTERVAL = 200; // Record every 10 seconds
     private static long activityUpdateCounter = 0;
-    private static final long ACTIVITY_UPDATE_INTERVAL = 6000; // Update every 5 minutes
 
     private PlayerEvents() {
     }
@@ -23,8 +21,12 @@ public final class PlayerEvents {
     @SubscribeEvent
     public static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            PlayerAnalyticsDb.recordEvent("join", player);
-            PlayerAnalyticsDb.startSession(player);
+            if (AnalyticsConfig.TRACK_SESSIONS.get()) {
+                PlayerAnalyticsDb.recordEvent("join", player);
+            }
+            if (AnalyticsConfig.TRACK_PLAYTIME.get()) {
+                PlayerAnalyticsDb.startSession(player);
+            }
             PlayeranalyticsForgeMod.LOGGER.info("Player joined: {} ({})", player.getGameProfile().getName(), player.getUUID());
         }
     }
@@ -32,8 +34,12 @@ public final class PlayerEvents {
     @SubscribeEvent
     public static void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            PlayerAnalyticsDb.recordEvent("leave", player);
-            PlayerAnalyticsDb.endSession(player);
+            if (AnalyticsConfig.TRACK_SESSIONS.get()) {
+                PlayerAnalyticsDb.recordEvent("leave", player);
+            }
+            if (AnalyticsConfig.TRACK_PLAYTIME.get()) {
+                PlayerAnalyticsDb.endSession(player);
+            }
             PlayeranalyticsForgeMod.LOGGER.info("Player left: {} ({})", player.getGameProfile().getName(), player.getUUID());
         }
     }
@@ -45,9 +51,15 @@ public final class PlayerEvents {
 
     @SubscribeEvent
     public static void onLivingDeath(LivingDeathEvent event) {
+        if (!AnalyticsConfig.TRACK_COMBAT.get()) {
+            return; // Skip if combat tracking is disabled
+        }
+        
         if (event.getEntity() instanceof ServerPlayer victim) {
             PlayerAnalyticsDb.recordDeath(victim);
-            PlayerAnalyticsDb.recordPlayerActivity(victim.getUUID());
+            if (AnalyticsConfig.TRACK_ACTIVITY.get()) {
+                PlayerAnalyticsDb.recordPlayerActivity(victim.getUUID());
+            }
             
             // Record death cause
             String deathCause = getDeathCause(event.getSource());
@@ -138,14 +150,20 @@ public final class PlayerEvents {
             tickCounter++;
             activityUpdateCounter++;
             
-            if (tickCounter >= METRIC_RECORDING_INTERVAL && event.getServer() != null) {
+            long metricsInterval = AnalyticsConfig.METRICS_RECORDING_INTERVAL.get();
+            if (tickCounter >= metricsInterval && event.getServer() != null) {
                 tickCounter = 0;
-                recordServerMetrics(event.getServer());
+                if (AnalyticsConfig.TRACK_ACTIVITY.get()) {
+                    recordServerMetrics(event.getServer());
+                }
             }
             
-            if (activityUpdateCounter >= ACTIVITY_UPDATE_INTERVAL) {
+            long activityInterval = AnalyticsConfig.ACTIVITY_UPDATE_INTERVAL.get();
+            if (activityUpdateCounter >= activityInterval) {
                 activityUpdateCounter = 0;
-                PlayerAnalyticsDb.updateDailyActivity();
+                if (AnalyticsConfig.TRACK_ACTIVITY.get()) {
+                    PlayerAnalyticsDb.updateDailyActivity();
+                }
             }
         }
     }
