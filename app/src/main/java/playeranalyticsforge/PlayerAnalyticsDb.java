@@ -23,8 +23,6 @@ public final class PlayerAnalyticsDb {
     private static final ConcurrentHashMap<UUID, Instant> lastActivityTime = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<UUID, Instant> afkStartTime = new ConcurrentHashMap<>();
     private static final long AFK_TIMEOUT_SECONDS = 300; // 5 minutes
-    private static final long METRIC_RECORDING_INTERVAL_TICKS = 200; // Record every 10 seconds
-    private static long lastMetricRecordTime = 0;
 
     private PlayerAnalyticsDb() {
     }
@@ -297,6 +295,7 @@ public final class PlayerAnalyticsDb {
                 long ramMaxMb = runtime.maxMemory() / (1024 * 1024);
                 
                 // Get CPU usage
+                @SuppressWarnings("deprecation")
                 double cpuUsage = com.sun.management.OperatingSystemMXBean.class.isInstance(
                     java.lang.management.ManagementFactory.getOperatingSystemMXBean()
                 ) ? ((com.sun.management.OperatingSystemMXBean) java.lang.management.ManagementFactory.getOperatingSystemMXBean()).getSystemCpuLoad() * 100 : 0;
