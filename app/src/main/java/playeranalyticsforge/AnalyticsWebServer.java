@@ -210,6 +210,61 @@ public final class AnalyticsWebServer {
                 color: var(--muted);
                 font-weight: 600;
               }
+              th.sortable {
+                cursor: pointer;
+                user-select: none;
+                position: relative;
+                padding-right: 24px;
+              }
+              th.sortable:hover {
+                color: var(--accent);
+              }
+              th.sortable::after {
+                content: '⇅';
+                position: absolute;
+                right: 8px;
+                opacity: 0.3;
+                font-size: 12px;
+              }
+              th.sortable.asc::after {
+                content: '▲';
+                opacity: 1;
+                color: var(--accent);
+              }
+              th.sortable.desc::after {
+                content: '▼';
+                opacity: 1;
+                color: var(--accent);
+              }
+              .table-controls {
+                display: flex;
+                gap: 12px;
+                align-items: center;
+                margin-bottom: 12px;
+                flex-wrap: wrap;
+              }
+              .search-input {
+                flex: 1;
+                min-width: 200px;
+                padding: 8px 12px;
+                border: 1px solid var(--line);
+                border-radius: 6px;
+                background: var(--bg);
+                color: var(--text);
+                font-size: 14px;
+              }
+              .search-input:focus {
+                outline: none;
+                border-color: var(--accent);
+              }
+              .filter-badge {
+                display: inline-block;
+                padding: 4px 8px;
+                background: rgba(208, 117, 47, 0.15);
+                border-radius: 4px;
+                font-size: 12px;
+                color: var(--accent);
+              }
               .pill {
                 display: inline-block;
                 padding: 2px 8px;
@@ -379,7 +434,11 @@ public final class AnalyticsWebServer {
               </section>
               <section class=\"card\">
                 <div class=\"pill\">Recent Sessions</div>
-                <table>
+                <div class=\"table-controls\">
+                  <input type=\"text\" id=\"search-sessions\" class=\"search-input\" placeholder=\"Search sessions...\">
+                  <span id=\"search-sessions-count\" class=\"filter-badge\">0 results</span>
+                </div>
+                <table id=\"sessions-table\">
                   <thead>
                     <tr>
                       <th>Player</th>
@@ -402,7 +461,11 @@ public final class AnalyticsWebServer {
               </section>
               <section class=\"card\">
                 <div class=\"pill\">Playtime Analysis</div>
-                <table>
+                <div class=\"table-controls\">
+                  <input type=\"text\" id=\"search-playtime\" class=\"search-input\" placeholder=\"Search playtime...\">
+                  <span id=\"search-playtime-count\" class=\"filter-badge\">0 results</span>
+                </div>
+                <table id=\"playtime-table\">
                   <thead>
                     <tr>
                       <th>Player</th>
@@ -416,7 +479,11 @@ public final class AnalyticsWebServer {
                 </table>
               </section>              <section class=\"card card-full\">
                 <div class=\"pill\">Combat Statistics</div>
-                <table>
+                <div class=\"table-controls\">
+                  <input type=\"text\" id=\"search-combat\" class=\"search-input\" placeholder=\"Search combat stats...\">
+                  <span id=\"search-combat-count\" class=\"filter-badge\">0 results</span>
+                </div>
+                <table id=\"combat-table\">
                   <thead>
                     <tr>
                       <th>Player</th>
@@ -454,7 +521,11 @@ public final class AnalyticsWebServer {
               </section>
               <section class="card">
                 <div class="pill">Kill Details</div>
-                <table>
+                <div class="table-controls">
+                  <input type="text" id="search-kills" class="search-input" placeholder="Search kills...">
+                  <span id="search-kills-count" class="filter-badge">0 results</span>
+                </div>
+                <table id="kills-table">
                   <thead>
                     <tr>
                       <th>Killer</th>
@@ -573,6 +644,100 @@ public final class AnalyticsWebServer {
             </main>
             <div class=\"footer\">Powered by Playeranalytics Forge mod</div>
             <script>
+              // Table sorting utility
+              function makeTableSortable(tableId) {
+                const table = document.getElementById(tableId);
+                if (!table) return;
+                
+                const tbody = table.querySelector('tbody');
+                const thead = table.querySelector('thead');
+                if (!thead || !tbody) return;
+                
+                const headers = thead.querySelectorAll('th');
+                headers.forEach((header, index) => {
+                  // Skip rank columns (#)
+                  if (header.textContent.trim() === '#') return;
+                  
+                  header.classList.add('sortable');
+                  header.dataset.column = index;
+                  header.dataset.order = 'none';
+                  
+                  header.addEventListener('click', () => {
+                    const rows = Array.from(tbody.querySelectorAll('tr'));
+                    const currentOrder = header.dataset.order;
+                    const newOrder = currentOrder === 'asc' ? 'desc' : 'asc';
+                    
+                    // Remove sorting classes from all headers
+                    headers.forEach(h => {
+                      h.classList.remove('asc', 'desc');
+                      if (h !== header) h.dataset.order = 'none';
+                    });
+                    
+                    // Add sorting class to current header
+                    header.classList.add(newOrder);
+                    header.dataset.order = newOrder;
+                    
+                    // Sort rows
+                    rows.sort((a, b) => {
+                      const aCell = a.cells[index];
+                      const bCell = b.cells[index];
+                      if (!aCell || !bCell) return 0;
+                      
+                      let aValue = aCell.textContent.trim();
+                      let bValue = bCell.textContent.trim();
+                      
+                      // Try to parse as number
+                      const aNum = parseFloat(aValue.replace(/[^0-9.-]/g, ''));
+                      const bNum = parseFloat(bValue.replace(/[^0-9.-]/g, ''));
+                      
+                      if (!isNaN(aNum) && !isNaN(bNum)) {
+                        return newOrder === 'asc' ? aNum - bNum : bNum - aNum;
+                      }
+                      
+                      // String comparison
+                      return newOrder === 'asc' ? 
+                        aValue.localeCompare(bValue) : 
+                        bValue.localeCompare(aValue);
+                    });
+                    
+                    // Re-append sorted rows
+                    rows.forEach(row => tbody.appendChild(row));
+                  });
+                });
+              }
+              
+              // Table filtering utility
+              function addTableSearch(tableId, searchInputId) {
+                const table = document.getElementById(tableId);
+                const searchInput = document.getElementById(searchInputId);
+                if (!table || !searchInput) return;
+                
+                const tbody = table.querySelector('tbody');
+                if (!tbody) return;
+                
+                searchInput.addEventListener('input', (e) => {
+                  const searchTerm = e.target.value.toLowerCase();
+                  const rows = tbody.querySelectorAll('tr');
+                  
+                  let visibleCount = 0;
+                  rows.forEach(row => {
+                    const text = row.textContent.toLowerCase();
+                    if (text.includes(searchTerm)) {
+                      row.style.display = '';
+                      visibleCount++;
+                    } else {
+                      row.style.display = 'none';
+                    }
+                  });
+                  
+                  // Update count badge if exists
+                  const badge = document.getElementById(`${searchInputId}-count`);
+                  if (badge) {
+                    badge.textContent = `${visibleCount} results`;
+                  }
+                });
+              }
+              
               async function loadSummary() {
                 const res = await fetch("/api/summary");
                 const data = await res.json();
@@ -1094,7 +1259,36 @@ public final class AnalyticsWebServer {
                 await Promise.all([loadServerOverview(), loadSummary(), loadEvents(), loadPlayers(), loadSessions(), loadKills(), loadPlaytimeDetails(), loadPlaytimeChart(), loadKillsChart(), loadServerMetrics(), loadCombatStats(), loadWeaponChart(), loadSessionInsights(), loadActivityTrends(), loadHourlyActivity(), loadLeaderboards(), loadOnlinePlayers()]);
               }
 
-              refreshAll();
+              // Initialize tables
+              async function initTables() {
+                await refreshAll();
+                
+                // Make tables sortable
+                makeTableSortable('players-table');
+                makeTableSortable('sessions-table');
+                makeTableSortable('playtime-table');
+                makeTableSortable('combat-table');
+                makeTableSortable('kills-table');
+                
+                // Add search functionality
+                addTableSearch('players-table', 'search-players');
+                addTableSearch('sessions-table', 'search-sessions');
+                addTableSearch('playtime-table', 'search-playtime');
+                addTableSearch('combat-table', 'search-combat');
+                addTableSearch('kills-table', 'search-kills');
+                
+                // Initial count updates
+                ['players', 'sessions', 'playtime', 'combat', 'kills'].forEach(name => {
+                  const table = document.getElementById(`${name}-table`);
+                  const badge = document.getElementById(`search-${name}-count`);
+                  if (table && badge) {
+                    const rows = table.querySelectorAll('tbody tr');
+                    badge.textContent = `${rows.length} results`;
+                  }
+                });
+              }
+
+              initTables();
               setInterval(refreshAll, 5000);
             </script>
           </body>
