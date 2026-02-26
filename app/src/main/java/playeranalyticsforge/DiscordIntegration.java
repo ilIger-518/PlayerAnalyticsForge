@@ -1,210 +1,231 @@
 package playeranalyticsforge;
 
-import net.dv8tion.jda.api.EmbedBuilder;
-import net.dv8tion.jda.api.JDA;
-import net.dv8tion.jda.api.JDABuilder;
-import net.dv8tion.jda.api.entities.Guild;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
-import net.dv8tion.jda.api.exceptions.InvalidTokenException;
-
-import java.awt.Color;
 import java.time.Instant;
 
 /**
- * Discord Bot Integration for PlayerAnalytics
- * Sends events to Discord channels via a bot token
+ * Discord Bot Integration for PlayerAnalytics (Reflection-based to avoid hard dependency on JDA)
+ * Sends events to Discord channels via a bot token using reflection to load JDA dynamically
  */
 public final class DiscordIntegration {
-  private static volatile JDA jda;
+    private static volatile Object jda; // Holds JDA instance if available
+    private static volatile boolean jdaAvailable = false;
 
-  private DiscordIntegration() {
-  }
-
-  public static void start() {
-    if (!AnalyticsConfig.DISCORD_ENABLED.get()) {
-      return;
+    private DiscordIntegration() {
     }
 
-    String token = AnalyticsConfig.DISCORD_BOT_TOKEN.get();
-    if (token == null || token.isBlank()) {
-      PlayeranalyticsForgeMod.LOGGER.warn("Discord bot token not set; skipping Discord integration");
-      return;
+    static {
+        // Check if JDA is available on the classpath
+        try {
+            Class.forName("net.dv8tion.jda.api.JDABuilder");
+            jdaAvailable = true;
+        } catch (ClassNotFoundException e) {
+            jdaAvailable = false;
+        }
     }
 
-    try {
-      jda = JDABuilder.createDefault(token).build();
-      PlayeranalyticsForgeMod.LOGGER.info("Discord bot initialization started");
-    } catch (InvalidTokenException ex) {
-      PlayeranalyticsForgeMod.LOGGER.error("Invalid Discord bot token; Discord integration disabled");
-    } catch (Exception ex) {
-      PlayeranalyticsForgeMod.LOGGER.error("Failed to initialize Discord bot", ex);
-    }
-  }
+    public static void start() {
+        if (!jdaAvailable) {
+            PlayeranalyticsForgeMod.LOGGER.debug("JDA library not found; Discord integration unavailable");
+            return;
+        }
 
-  public static void stop() {
-    JDA current = jda;
-    jda = null;
-    if (current != null) {
-      current.shutdownNow();
-    }
-  }
+        if (!AnalyticsConfig.DISCORD_ENABLED.get()) {
+            return;
+        }
 
-  private static TextChannel getTargetChannel() {
-    JDA current = jda;
-    if (current == null) {
-      return null;
-    }
+        String token = AnalyticsConfig.DISCORD_BOT_TOKEN.get();
+        if (token == null || token.isBlank()) {
+            PlayeranalyticsForgeMod.LOGGER.debug("Discord bot token not set; skipping Discord integration");
+            return;
+        }
 
-    String channelId = AnalyticsConfig.DISCORD_CHANNEL_ID.get();
-    if (channelId == null || channelId.isBlank()) {
-      return null;
-    }
-
-    String guildId = AnalyticsConfig.DISCORD_GUILD_ID.get();
-    if (guildId != null && !guildId.isBlank()) {
-      Guild guild = current.getGuildById(guildId);
-      if (guild != null) {
-        return guild.getTextChannelById(channelId);
-      }
+        try {
+            Class<?> jdaBuilderClass = Class.forName("net.dv8tion.jda.api.JDABuilder");
+            java.lang.reflect.Method createDefaultMethod = jdaBuilderClass.getMethod("createDefault", String.class);
+            Object builder = createDefaultMethod.invoke(null, token);
+            java.lang.reflect.Method buildMethod = builder.getClass().getMethod("build");
+            jda = buildMethod.invoke(builder);
+            PlayeranalyticsForgeMod.LOGGER.info("Discord bot initialized via JDA");
+        } catch (Exception ex) {
+            PlayeranalyticsForgeMod.LOGGER.warn("Failed to initialize Discord bot: {}", ex.getMessage());
+        }
     }
 
-    return current.getTextChannelById(channelId);
-  }
+    public static void stop() {
+        if (jda == null || !jdaAvailable) {
+            return;
+        }
 
-  private static void sendEmbed(EmbedBuilder embed) {
-    if (!AnalyticsConfig.DISCORD_ENABLED.get()) {
-      return;
+        try {
+            java.lang.reflect.Method shutdownMethod = jda.getClass().getMethod("shutdownNow");
+            shutdownMethod.invoke(jda);
+            jda = null;
+        } catch (Exception ex) {
+            PlayeranalyticsForgeMod.LOGGER.debug("Failed to shutdown Discord bot", ex);
+        }
     }
 
-    TextChannel channel = getTargetChannel();
-    if (channel == null) {
-      return;
+    private static Object getTargetChannel() {
+        if (jda == null || !jdaAvailable) {
+            return null;
+        }
+
+        String channelId = AnalyticsConfig.DISCORD_CHANNEL_ID.get();
+        if (channelId == null || channelId.isBlank()) {
+            return null;
+        }
+
+        try {
+            String guildId = AnalyticsConfig.DISCORD_GUILD_ID.get();
+            java.lang.reflect.Method getTextChannelByIdMethod;
+            
+            if (guildId != null && !guildId.isBlank()) {
+                java.lang.reflect.Method getGuildByIdMethod = jda.getClass().getMethod("getGuildById", String.class);
+                Object guild = getGuildByIdMethod.invoke(jda, guildId);
+                if (guild != null) {
+                    getTextChannelByIdMethod = guild.getClass().getMethod("getTextChannelById", String.class);
+                    return getTextChannelByIdMethod.invoke(guild, channelId);
+                }
+            }
+
+            getTextChannelByIdMethod = jda.getClass().getMethod("getTextChannelById", String.class);
+            return getTextChannelByIdMethod.invoke(jda, channelId);
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
-    channel.sendMessageEmbeds(embed.build()).queue(
-        success -> {},
-        error -> PlayeranalyticsForgeMod.LOGGER.debug("Discord message send failed", error)
-    );
-  }
+    private static void sendEmbed(String title, String description, int color) {
+        if (!jdaAvailable) {
+            return;
+        }
+
+        Object channel = getTargetChannel();
+        if (channel == null) {
+            return;
+        }
+
+        try {
+            Class<?> embedBuilderClass = Class.forName("net.dv8tion.jda.api.EmbedBuilder");
+            Object embed = embedBuilderClass.getConstructor().newInstance();
+            
+            // Set title
+            java.lang.reflect.Method setTitleMethod = embedBuilderClass.getMethod("setTitle", String.class);
+            setTitleMethod.invoke(embed, title);
+            
+            // Set description
+            if (description != null && !description.isEmpty()) {
+                java.lang.reflect.Method setDescriptionMethod = embedBuilderClass.getMethod("setDescription", String.class);
+                setDescriptionMethod.invoke(embed, description);
+            }
+            
+            // Set color
+            Class<?> colorClass = Class.forName("java.awt.Color");
+            Object colorObj = colorClass.getConstructor(int.class).newInstance(color);
+            java.lang.reflect.Method setColorMethod = embedBuilderClass.getMethod("setColor", colorClass);
+            setColorMethod.invoke(embed, colorObj);
+            
+            // Set timestamp
+            Class<?> instantClass = Class.forName("java.time.Instant");
+            Object now = instantClass.getMethod("now").invoke(null);
+            java.lang.reflect.Method setTimestampMethod = embedBuilderClass.getMethod("setTimestamp", instantClass);
+            setTimestampMethod.invoke(embed, now);
+            
+            // Set footer
+            java.lang.reflect.Method setFooterMethod = embedBuilderClass.getMethod("setFooter", String.class);
+            setFooterMethod.invoke(embed, "PlayerAnalytics");
+            
+            // Build the embed
+            java.lang.reflect.Method buildMethod = embedBuilderClass.getMethod("build");
+            Object builtEmbed = buildMethod.invoke(embed);
+            
+            // Send via channel
+            java.lang.reflect.Method sendMessageEmbedsMethod = channel.getClass().getMethod("sendMessageEmbeds", java.util.List.class);
+            Object action = sendMessageEmbedsMethod.invoke(channel, java.util.Arrays.asList(builtEmbed));
+            
+            // Queue it (fire and forget)
+            java.lang.reflect.Method queueMethod = action.getClass().getMethod("queue");
+            queueMethod.invoke(action);
+        } catch (Exception ex) {
+            PlayeranalyticsForgeMod.LOGGER.debug("Failed to send Discord embed", ex);
+        }
+    }
 
     /**
      * Notify Discord of a player join
      */
     public static void notifyPlayerJoin(String playerName, String uuid) {
-        boolean notifyJoins = AnalyticsConfig.DISCORD_NOTIFY_JOINS.get();
-        if (!notifyJoins) {
+        if (!AnalyticsConfig.DISCORD_ENABLED.get() || !AnalyticsConfig.DISCORD_NOTIFY_JOINS.get()) {
             return;
         }
 
-        EmbedBuilder embed = baseEmbed("⬇️ Player Joined")
-                .setDescription("**" + escapeMarkdown(playerName) + "**")
-                .setColor(new Color(46, 204, 113))
-                .setTimestamp(Instant.now());
-
-        sendEmbed(embed);
+        sendEmbed("⬇️ Player Joined", "**" + escapeMarkdown(playerName) + "**", 3066993); // Green
     }
 
     /**
      * Notify Discord of a player leave
      */
     public static void notifyPlayerLeave(String playerName, String uuid, long playtimeSeconds) {
-        boolean notifyLeaves = AnalyticsConfig.DISCORD_NOTIFY_LEAVES.get();
-        if (!notifyLeaves) {
+        if (!AnalyticsConfig.DISCORD_ENABLED.get() || !AnalyticsConfig.DISCORD_NOTIFY_LEAVES.get()) {
             return;
         }
 
         String duration = formatDuration(playtimeSeconds);
-        EmbedBuilder embed = baseEmbed("⬆️ Player Left")
-                .setDescription("**" + escapeMarkdown(playerName) + "**")
-                .addField("Session Duration", duration, true)
-                .setColor(new Color(231, 76, 60))
-                .setTimestamp(Instant.now());
-
-        sendEmbed(embed);
+        sendEmbed("⬆️ Player Left", "**" + escapeMarkdown(playerName) + "**\nSession Duration: " + duration, 15158332); // Red
     }
 
     /**
      * Notify Discord of a kill
      */
     public static void notifyKill(String killerName, String victimName, String weaponType, boolean isPvP) {
-        boolean notifyKills = AnalyticsConfig.DISCORD_NOTIFY_KILLS.get();
-        if (!notifyKills) {
+        if (!AnalyticsConfig.DISCORD_ENABLED.get() || !AnalyticsConfig.DISCORD_NOTIFY_KILLS.get()) {
             return;
         }
 
-        Color color = isPvP ? new Color(231, 76, 60) : new Color(241, 196, 15);
+        int color = isPvP ? 16711680 : 16776960; // Red for PvP, Yellow for PvE
         String type = isPvP ? "PvP Kill" : "PvE Kill";
-
-        EmbedBuilder embed = baseEmbed("⚔️ " + type)
-                .setDescription("**" + escapeMarkdown(killerName) + "** eliminated **" + escapeMarkdown(victimName) + "**")
-                .addField("Weapon", escapeMarkdown(weaponType), true)
-                .addField("Type", isPvP ? "PvP" : "PvE", true)
-                .setColor(color)
-                .setTimestamp(Instant.now());
-
-        sendEmbed(embed);
+        sendEmbed("⚔️ " + type, 
+                "**" + escapeMarkdown(killerName) + "** eliminated **" + escapeMarkdown(victimName) + "**\n" +
+                "Weapon: " + escapeMarkdown(weaponType) + "\nType: " + (isPvP ? "PvP" : "PvE"), 
+                color);
     }
 
     /**
      * Notify Discord of a death
      */
     public static void notifyDeath(String playerName, String deathCause) {
-        boolean notifyDeaths = AnalyticsConfig.DISCORD_NOTIFY_DEATHS.get();
-        if (!notifyDeaths) {
+        if (!AnalyticsConfig.DISCORD_ENABLED.get() || !AnalyticsConfig.DISCORD_NOTIFY_DEATHS.get()) {
             return;
         }
 
-        EmbedBuilder embed = baseEmbed("💀 Player Death")
-                .setDescription("**" + escapeMarkdown(playerName) + "** died")
-                .addField("Cause", escapeMarkdown(deathCause), true)
-                .setColor(new Color(155, 89, 182))
-                .setTimestamp(Instant.now());
-
-        sendEmbed(embed);
+        sendEmbed("💀 Player Death", 
+                "**" + escapeMarkdown(playerName) + "** died\nCause: " + escapeMarkdown(deathCause),
+                9109504); // Purple
     }
 
     /**
      * Notify Discord of server milestones
      */
     public static void notifyMilestone(String title, String description) {
-        boolean notifyMilestones = AnalyticsConfig.DISCORD_NOTIFY_MILESTONES.get();
-        if (!notifyMilestones) {
+        if (!AnalyticsConfig.DISCORD_ENABLED.get() || !AnalyticsConfig.DISCORD_NOTIFY_MILESTONES.get()) {
             return;
         }
 
-        EmbedBuilder embed = baseEmbed("🎉 " + escapeMarkdown(title))
-                .setDescription(escapeMarkdown(description))
-                .setColor(new Color(155, 89, 182))
-                .setTimestamp(Instant.now());
-
-        sendEmbed(embed);
+        sendEmbed("🎉 " + escapeMarkdown(title), escapeMarkdown(description), 7506394); // Purple
     }
 
     /**
      * Notify Discord of server stats
      */
     public static void notifyServerStats(int playerCount, double tps, String serverName) {
-        boolean notifyStats = AnalyticsConfig.DISCORD_NOTIFY_STATS.get();
-        if (!notifyStats) {
+        if (!AnalyticsConfig.DISCORD_ENABLED.get() || !AnalyticsConfig.DISCORD_NOTIFY_STATS.get()) {
             return;
         }
 
         String tpsColor = tps >= 19.5 ? "🟢" : tps >= 18.0 ? "🟡" : "🔴";
-
-        EmbedBuilder embed = baseEmbed("📊 Server Stats - " + escapeMarkdown(serverName))
-                .addField("Players Online", String.valueOf(playerCount), true)
-                .addField("TPS", tpsColor + " " + String.format("%.1f", tps), true)
-                .setColor(new Color(52, 152, 219))
-                .setTimestamp(Instant.now());
-
-        sendEmbed(embed);
-    }
-
-    private static EmbedBuilder baseEmbed(String title) {
-        return new EmbedBuilder()
-                .setTitle(title)
-                .setFooter("PlayerAnalytics")
-                .setTimestamp(Instant.now());
+        sendEmbed("📊 Server Stats - " + escapeMarkdown(serverName),
+                "Players Online: " + playerCount + "\nTPS: " + tpsColor + " " + String.format("%.1f", tps),
+                3447003); // Blue
     }
 
     private static String escapeMarkdown(String str) {
@@ -219,9 +240,6 @@ public final class DiscordIntegration {
                 .replace("`", "\\`");
     }
 
-    /**
-     * Format duration in seconds to human readable format
-     */
     private static String formatDuration(long seconds) {
         long hours = seconds / 3600;
         long minutes = (seconds % 3600) / 60;
