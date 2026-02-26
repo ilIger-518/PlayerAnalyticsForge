@@ -29,6 +29,13 @@ public final class PlayerEvents {
             String worldName = player.serverLevel().dimension().location().toString();
             playerWorlds.put(player.getUUID(), worldName);
             
+            // Track server transfer if network enabled
+            if (AnalyticsConfig.NETWORK_ENABLED.get()) {
+                String serverId = AnalyticsConfig.SERVER_ID.get();
+                String networkName = AnalyticsConfig.NETWORK_NAME.get();
+                PlayerAnalyticsDb.recordPlayerServerTransfer(player, serverId, networkName, "This Server");
+            }
+            
             if (AnalyticsConfig.TRACK_SESSIONS.get()) {
                 PlayerAnalyticsDb.recordEvent("join", player);
             }

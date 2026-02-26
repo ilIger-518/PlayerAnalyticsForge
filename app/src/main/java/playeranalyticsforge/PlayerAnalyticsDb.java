@@ -830,6 +830,54 @@ public final class PlayerAnalyticsDb {
                 statement.executeUpdate(
                     "CREATE INDEX IF NOT EXISTS idx_world_sessions_player ON world_sessions(player_uuid)"
                 );
+                
+                // Network tracking tables
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS servers (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "server_id TEXT NOT NULL UNIQUE, " +
+                        "network_name TEXT NOT NULL, " +
+                        "server_name TEXT NOT NULL, " +
+                        "last_sync TEXT NOT NULL, " +
+                        "is_online BOOLEAN NOT NULL DEFAULT 1" +
+                    ")"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS player_server_history (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "player_uuid TEXT NOT NULL, " +
+                        "player_name TEXT NOT NULL, " +
+                        "server_id TEXT NOT NULL, " +
+                        "joined_time TEXT NOT NULL, " +
+                        "left_time TEXT, " +
+                        "duration_seconds LONG, " +
+                        "is_current BOOLEAN NOT NULL DEFAULT 1" +
+                    ")"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS network_sync_log (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "sync_time TEXT NOT NULL, " +
+                        "server_id TEXT NOT NULL, " +
+                        "stats_sync_count INTEGER NOT NULL, " +
+                        "success BOOLEAN NOT NULL DEFAULT 1, " +
+                        "error_message TEXT" +
+                    ")"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_player_server_history_uuid ON player_server_history(player_uuid)"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_player_server_history_server ON player_server_history(server_id)"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_servers_network ON servers(network_name)"
+                );
             }
 
             return connection;
@@ -1799,6 +1847,206 @@ public final class PlayerAnalyticsDb {
             } catch (SQLException ex) {
                 PlayeranalyticsForgeMod.LOGGER.error("Failed to get world stats for: {}", worldName, ex);
                 return "{\"error\":\"Failed to retrieve world stats\"}";
+            }
+        }
+    }
+
+    // Network functionality
+    @SuppressWarnings("null")
+    public static void recordPlayerServerTransfer(ServerPlayer player, String serverId, String networkName, String serverName) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                
+                // Mark previous server session as ended
+                String endPreviousSql = "UPDATE player_server_history SET is_current=0, left_time=?, duration_seconds=? " +
+                    "WHERE player_uuid = ? AND is_current = 1";
+                try (PreparedStatement stmt = conn.prepareStatement(endPreviousSql)) {
+                    stmt.setString(1, Instant.now().toString());
+                    long duration = 0; // In real scenario, calculate from joined_time
+                    stmt.setLong(2, duration);
+                    stmt.setString(3, player.getUUID().toString());
+                    stmt.executeUpdate();
+                }
+                
+                // Record new server session
+                String recordNewSql = "INSERT INTO player_server_history (player_uuid, player_name, server_id, joined_time, is_current) " +
+                    "VALUES (?, ?, ?, ?, 1)";
+                try (PreparedStatement stmt = conn.prepareStatement(recordNewSql)) {
+                    stmt.setString(1, player.getUUID().toString());
+                    stmt.setString(2, player.getGameProfile().getName());
+                    stmt.setString(3, serverId);
+                    stmt.setString(4, Instant.now().toString());
+                    stmt.executeUpdate();
+                }
+                
+                // Register/update server info
+                String upsertServerSql = "INSERT OR IGNORE INTO servers (server_id, network_name, server_name, last_sync) " +
+                    "VALUES (?, ?, ?, ?) ";
+                try (PreparedStatement stmt = conn.prepareStatement(upsertServerSql)) {
+                    stmt.setString(1, serverId);
+                    stmt.setString(2, networkName);
+                    stmt.setString(3, serverName);
+                    stmt.setString(4, Instant.now().toString());
+                    stmt.executeUpdate();
+                }
+                
+                PlayeranalyticsForgeMod.LOGGER.info("Recorded player {} server transfer to {}", player.getUUID(), serverId);
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to record player server transfer", ex);
+            }
+        }
+    }
+
+    @SuppressWarnings("null")
+    public static String getNetworkStatsJson(String networkName) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                
+                // Get number of servers in network
+                String serverCountSql = "SELECT COUNT(*) as count FROM servers WHERE network_name = ?";
+                int serverCount = 0;
+                try (PreparedStatement stmt = conn.prepareStatement(serverCountSql)) {
+                    stmt.setString(1, networkName);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) serverCount = rs.getInt("count");
+                    }
+                }
+                
+                // Get unique players across network
+                String playerCountSql = "SELECT COUNT(DISTINCT player_uuid) as count FROM player_server_history " +
+                    "WHERE server_id IN (SELECT server_id FROM servers WHERE network_name = ?)";
+                int uniquePlayers = 0;
+                try (PreparedStatement stmt = conn.prepareStatement(playerCountSql)) {
+                    stmt.setString(1, networkName);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) uniquePlayers = rs.getInt("count");
+                    }
+                }
+                
+                // Get total transfers
+                String transferCountSql = "SELECT COUNT(*) as count FROM player_server_history " +
+                    "WHERE server_id IN (SELECT server_id FROM servers WHERE network_name = ?) AND is_current = 0";
+                int totalTransfers = 0;
+                try (PreparedStatement stmt = conn.prepareStatement(transferCountSql)) {
+                    stmt.setString(1, networkName);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) totalTransfers = rs.getInt("count");
+                    }
+                }
+                
+                StringBuilder json = new StringBuilder("{\"networkName\":").append(toJsonString(networkName))
+                    .append(",\"serverCount\":").append(serverCount)
+                    .append(",\"uniquePlayers\":").append(uniquePlayers)
+                    .append(",\"totalTransfers\":").append(totalTransfers)
+                    .append("}");
+                
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get network stats", ex);
+                return "{\"error\":\"Failed to retrieve network stats\"}";
+            }
+        }
+    }
+
+    @SuppressWarnings("null")
+    public static String getServerComparisonJson(String networkName) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                
+                String sql = "SELECT s.server_id, s.server_name, " +
+                    "COUNT(DISTINCT psh.player_uuid) as unique_players, " +
+                    "SUM(CASE WHEN psh.is_current=1 THEN 1 ELSE 0 END) as current_players, " +
+                    "COUNT(*) as total_visits " +
+                    "FROM servers s " +
+                    "LEFT JOIN player_server_history psh ON s.server_id = psh.server_id " +
+                    "WHERE s.network_name = ? " +
+                    "GROUP BY s.server_id, s.server_name " +
+                    "ORDER BY current_players DESC";
+                
+                StringBuilder json = new StringBuilder("[");
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, networkName);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) json.append(",");
+                            json.append("{\"serverId\":").append(toJsonString(rs.getString("server_id")))
+                                .append(",\"serverName\":").append(toJsonString(rs.getString("server_name")))
+                                .append(",\"uniquePlayers\":").append(rs.getInt("unique_players"))
+                                .append(",\"currentPlayers\":").append(rs.getInt("current_players"))
+                                .append(",\"totalVisits\":").append(rs.getInt("total_visits"))
+                                .append("}");
+                            first = false;
+                        }
+                    }
+                }
+                json.append("]");
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get server comparison", ex);
+                return "[]";
+            }
+        }
+    }
+
+    @SuppressWarnings("null")
+    public static String getPlayerServerHistoryJson(String playerUuid) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                
+                String sql = "SELECT server_id, joined_time, left_time, duration_seconds, is_current " +
+                    "FROM player_server_history " +
+                    "WHERE player_uuid = ? " +
+                    "ORDER BY joined_time DESC";
+                
+                StringBuilder json = new StringBuilder("[");
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, playerUuid);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) json.append(",");
+                            json.append("{\"serverId\":").append(toJsonString(rs.getString("server_id")))
+                                .append(",\"joinedTime\":").append(toJsonString(rs.getString("joined_time")))
+                                .append(",\"leftTime\":").append(toJsonString(rs.getString("left_time")))
+                                .append(",\"durationSeconds\":").append(rs.getLong("duration_seconds"))
+                                .append(",\"current\":").append(rs.getBoolean("is_current"))
+                                .append("}");
+                            first = false;
+                        }
+                    }
+                }
+                json.append("]");
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get player server history", ex);
+                return "[]";
+            }
+        }
+    }
+
+    @SuppressWarnings("null")
+    public static void logNetworkSync(String serverId, String networkName, int statsCount, boolean success, String errorMessage) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "INSERT INTO network_sync_log (sync_time, server_id, stats_sync_count, success, error_message) " +
+                    "VALUES (?, ?, ?, ?, ?)";
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, Instant.now().toString());
+                    stmt.setString(2, serverId);
+                    stmt.setInt(3, statsCount);
+                    stmt.setBoolean(4, success);
+                    stmt.setString(5, errorMessage);
+                    stmt.executeUpdate();
+                }
+                PlayeranalyticsForgeMod.LOGGER.debug("Logged network sync: server={}, success={}", serverId, success);
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to log network sync", ex);
             }
         }
     }

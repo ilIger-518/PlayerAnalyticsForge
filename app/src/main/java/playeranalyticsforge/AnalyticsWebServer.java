@@ -64,6 +64,9 @@ public final class AnalyticsWebServer {
             server.createContext("/api/players/online", exchange -> handleJson(exchange, PlayerAnalyticsDb.getOnlinePlayersJson()));
             server.createContext("/api/worlds", exchange -> handleJson(exchange, PlayerAnalyticsDb.getWorldDistributionJson()));
             server.createContext("/api/world/", new WorldHandler());
+            server.createContext("/api/network/stats/", new NetworkStatsHandler());
+            server.createContext("/api/network/comparison/", new ServerComparisonHandler());
+            server.createContext("/api/player/servers/", new PlayerServerHistoryHandler());
             server.createContext("/api/leaderboard/", new LeaderboardHandler());
             server.createContext("/api/player/", new PlayerHandler());
             server.createContext("/player/", new PlayerPageHandler());
@@ -1570,6 +1573,73 @@ public final class AnalyticsWebServer {
             }
             
             String json = PlayerAnalyticsDb.getWorldStatsJson(worldName);
+            handleJson(exchange, json);
+        }
+    }
+
+    static class NetworkStatsHandler implements com.sun.net.httpserver.HttpHandler {
+        @Override
+        public void handle(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+            String path = exchange.getRequestURI().getPath();
+            String networkName = path.replace("/api/network/stats/", "");
+            
+            if (networkName.isEmpty()) {
+                networkName = AnalyticsConfig.NETWORK_NAME.get();
+            }
+            
+            try {
+                networkName = java.net.URLDecoder.decode(networkName, "UTF-8");
+            } catch (Exception e) {
+                handleJson(exchange, "{\"error\":\"Invalid network name\"}");
+                return;
+            }
+            
+            String json = PlayerAnalyticsDb.getNetworkStatsJson(networkName);
+            handleJson(exchange, json);
+        }
+    }
+
+    static class ServerComparisonHandler implements com.sun.net.httpserver.HttpHandler {
+        @Override
+        public void handle(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+            String path = exchange.getRequestURI().getPath();
+            String networkName = path.replace("/api/network/comparison/", "");
+            
+            if (networkName.isEmpty()) {
+                networkName = AnalyticsConfig.NETWORK_NAME.get();
+            }
+            
+            try {
+                networkName = java.net.URLDecoder.decode(networkName, "UTF-8");
+            } catch (Exception e) {
+                handleJson(exchange, "{\"error\":\"Invalid network name\"}");
+                return;
+            }
+            
+            String json = PlayerAnalyticsDb.getServerComparisonJson(networkName);
+            handleJson(exchange, json);
+        }
+    }
+
+    static class PlayerServerHistoryHandler implements com.sun.net.httpserver.HttpHandler {
+        @Override
+        public void handle(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+            String path = exchange.getRequestURI().getPath();
+            String playerUuid = path.replace("/api/player/servers/", "");
+            
+            if (playerUuid.isEmpty()) {
+                handleJson(exchange, "[]");
+                return;
+            }
+            
+            try {
+                playerUuid = java.net.URLDecoder.decode(playerUuid, "UTF-8");
+            } catch (Exception e) {
+                handleJson(exchange, "{\"error\":\"Invalid player UUID\"}");
+                return;
+            }
+            
+            String json = PlayerAnalyticsDb.getPlayerServerHistoryJson(playerUuid);
             handleJson(exchange, json);
         }
     }

@@ -39,6 +39,13 @@ public final class AnalyticsConfig {
     public static final ForgeConfigSpec.BooleanValue AUTO_CLEANUP_ENABLED;
     public static final ForgeConfigSpec.IntValue CLEANUP_INTERVAL_HOURS;
     
+    // Network Configuration
+    public static final ForgeConfigSpec.BooleanValue NETWORK_ENABLED;
+    public static final ForgeConfigSpec.ConfigValue<String> NETWORK_NAME;
+    public static final ForgeConfigSpec.ConfigValue<String> SERVER_ID;
+    public static final ForgeConfigSpec.ConfigValue<String> CENTRAL_SERVER_URL;
+    public static final ForgeConfigSpec.IntValue NETWORK_SYNC_INTERVAL_SECONDS;
+    
     static {
         BUILDER.comment("PlayerAnalytics Configuration")
                 .push("playeranalytics");
@@ -142,6 +149,32 @@ public final class AnalyticsConfig {
         CLEANUP_INTERVAL_HOURS = BUILDER
                 .comment("How often to run cleanup (in hours)")
                 .defineInRange("cleanupIntervalHours", 24, 1, 168);
+        
+        BUILDER.pop();
+        
+        // Network Configuration
+        BUILDER.comment("Network Configuration (Multi-Server Support)")
+                .push("network");
+        
+        NETWORK_ENABLED = BUILDER
+                .comment("Enable network features for multi-server setups")
+                .define("enabled", false);
+        
+        NETWORK_NAME = BUILDER
+                .comment("Name of the server network (e.g., 'MyNetwork', 'FriendsCluster')")
+                .define("networkName", "DefaultNetwork");
+        
+        SERVER_ID = BUILDER
+                .comment("Unique ID for this server (e.g., 'survival-1', 'pvp-main')")
+                .define("serverId", "server-1");
+        
+        CENTRAL_SERVER_URL = BUILDER
+                .comment("URL of central server for statistics sync (e.g., 'http://central.example.com:8804')")
+                .define("centralServerUrl", "http://localhost:8805");
+        
+        NETWORK_SYNC_INTERVAL_SECONDS = BUILDER
+                .comment("How often to sync stats to central server (in seconds)")
+                .defineInRange("syncIntervalSeconds", 300, 60, 3600);
         
         BUILDER.pop();
         

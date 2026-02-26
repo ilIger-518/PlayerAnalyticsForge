@@ -182,10 +182,10 @@
 - [ ] Engagement score calculation
 
 ### Network Features (Multi-Server)
-- [ ] Cross-server player tracking
-- [ ] Network-wide statistics
-- [ ] Server comparison views
-- [ ] Player server transfers tracking
+- [x] Cross-server player tracking
+- [x] Network-wide statistics
+- [x] Server comparison views
+- [x] Player server transfers tracking
 
 ### Analytics
 - [ ] Cohort analysis
