@@ -11,10 +11,10 @@
 ## 🎯 Core Analytics Features
 
 ### Session & Playtime Tracking
-- [ ] Session duration calculation (time between join and leave)
-- [ ] Total playtime per player
-- [ ] Active playtime (exclude AFK time)
-- [ ] AFK detection (no movement/interaction for X minutes)
+- [x] Session duration calculation (time between join and leave)
+- [x] Total playtime per player
+- [x] Active playtime (exclude AFK time)
+- [x] AFK detection (no movement/interaction for X minutes)
 - [ ] Session insights (average session length, sessions per day)
 - [ ] Login/logout timestamps with timezone support
 
@@ -39,13 +39,13 @@
 ## 📊 Web Dashboard Enhancements
 
 ### UI Components
-- [ ] Advanced graphs and charts (Chart.js or similar)
+- [x] Advanced graphs and charts (Chart.js or similar)
   - [ ] Player count over time (line graph)
   - [ ] Join/leaves per day (bar chart)
-  - [ ] Playtime distribution (pie chart)
+  - [x] Playtime distribution (pie chart)
   - [ ] Hourly activity heatmap
   - [ ] Geographic distribution map
-- [ ] Player profile pages (individual player stats)
+- [x] Player profile pages (individual player stats)
 - [ ] Server overview dashboard
 - [ ] Real-time player list (currently online)
 - [ ] Leaderboards (most active, highest K/D, longest playtime)
@@ -54,8 +54,8 @@
 - [ ] Date range selectors for graphs
 
 ### API Endpoints (REST)
-- [ ] `/api/player/{uuid}` - Individual player details
-- [ ] `/api/player/{uuid}/sessions` - Player session history
+- [x] `/api/player/{uuid}` - Individual player details
+- [x] `/api/player/{uuid}/sessions` - Player session history
 - [ ] `/api/player/{uuid}/kills` - Player kill history
 - [ ] `/api/server/performance` - TPS, RAM, CPU stats
 - [ ] `/api/server/activity` - Activity graphs data
@@ -65,10 +65,10 @@
 ## 🔧 Server Performance Monitoring
 
 ### System Metrics
-- [ ] TPS (Ticks Per Second) tracking
-- [ ] RAM usage tracking
-- [ ] CPU usage tracking
-- [ ] Entity count monitoring
+- [x] TPS (Ticks Per Second) tracking
+- [x] RAM usage tracking
+- [x] CPU usage tracking
+- [x] Entity count monitoring
 - [ ] Chunk load count
 - [ ] Average ping/latency per player
 
