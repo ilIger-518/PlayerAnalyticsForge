@@ -20,6 +20,11 @@ public final class PlayerAnalyticsDb {
     private static final Object LOCK = new Object();
     private static Connection connection;
     private static final ConcurrentHashMap<UUID, Instant> activeSessions = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<UUID, Instant> lastActivityTime = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<UUID, Instant> afkStartTime = new ConcurrentHashMap<>();
+    private static final long AFK_TIMEOUT_SECONDS = 300; // 5 minutes
+    private static final long METRIC_RECORDING_INTERVAL_TICKS = 200; // Record every 10 seconds
+    private static long lastMetricRecordTime = 0;
 
     private PlayerAnalyticsDb() {
     }
@@ -188,6 +193,202 @@ public final class PlayerAnalyticsDb {
                 }
             } catch (SQLException ex) {
                 PlayeranalyticsForgeMod.LOGGER.error("Failed to query player list", ex);
+                return "[]";
+            }
+        }
+    }
+
+    public static String getPlayerProfileJson(String playerUuid) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                // Get player basic stats
+                String sql = "SELECT p.player_uuid, p.player_name, p.kills, p.deaths, p.total_playtime_seconds, p.last_seen, " +
+                    "COALESCE(SUM(a.afk_duration_seconds), 0) AS total_afk_seconds, " +
+                    "COALESCE(p.total_playtime_seconds, 0) - COALESCE(SUM(a.afk_duration_seconds), 0) AS active_playtime_seconds, " +
+                    "COUNT(DISTINCT CASE WHEN a.afk_duration_seconds > 0 THEN a.id END) AS afk_periods " +
+                    "FROM player_stats p " +
+                    "LEFT JOIN player_afk_data a ON a.player_uuid = p.player_uuid " +
+                    "WHERE p.player_uuid = ?";
+                try (PreparedStatement statement = conn.prepareStatement(sql)) {
+                    statement.setString(1, playerUuid);
+                    try (ResultSet rs = statement.executeQuery()) {
+                        if (!rs.next()) {
+                            return "{\"error\":\"Player not found\"}";
+                        }
+                        
+                        StringBuilder json = new StringBuilder();
+                        json.append("{");
+                        json.append("\"playerUuid\":").append(toJsonString(rs.getString("player_uuid"))).append(",");
+                        json.append("\"playerName\":").append(toJsonString(rs.getString("player_name"))).append(",");
+                        json.append("\"kills\":").append(rs.getLong("kills")).append(",");
+                        json.append("\"deaths\":").append(rs.getLong("deaths")).append(",");
+                        json.append("\"kdRatio\":").append(formatKdRatio(rs.getLong("kills"), rs.getLong("deaths"))).append(",");
+                        json.append("\"totalPlaytimeSeconds\":").append(rs.getLong("total_playtime_seconds")).append(",");
+                        json.append("\"activePlaytimeSeconds\":").append(rs.getLong("active_playtime_seconds")).append(",");
+                        json.append("\"totalAfkSeconds\":").append(rs.getLong("total_afk_seconds")).append(",");
+                        json.append("\"afkPeriods\":").append(rs.getLong("afk_periods")).append(",");
+                        json.append("\"lastSeen\":").append(toJsonString(rs.getString("last_seen"))).append(",");
+                        
+                        // Get recent sessions
+                        String sessionsSql = "SELECT COUNT(*) AS session_count FROM player_session_data WHERE player_uuid = ?";
+                        try (PreparedStatement sessionsStmt = conn.prepareStatement(sessionsSql)) {
+                            sessionsStmt.setString(1, playerUuid);
+                            try (ResultSet sessionsRs = sessionsStmt.executeQuery()) {
+                                if (sessionsRs.next()) {
+                                    json.append("\"sessions\":").append(sessionsRs.getLong("session_count"));
+                                }
+                            }
+                        }
+                        json.append("}");
+                        return json.toString();
+                    }
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to query player profile", ex);
+                return "{\"error\":\"Database error\"}";
+            }
+        }
+    }
+
+    public static String getPlayerSessionsJson(String playerUuid, int limit) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT player_uuid, player_name, session_start, session_end, duration_seconds " +
+                    "FROM player_session_data WHERE player_uuid = ? ORDER BY session_end DESC LIMIT ?";
+                try (PreparedStatement statement = conn.prepareStatement(sql)) {
+                    statement.setString(1, playerUuid);
+                    statement.setInt(2, limit);
+                    try (ResultSet rs = statement.executeQuery()) {
+                        StringBuilder json = new StringBuilder();
+                        json.append("[");
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) {
+                                json.append(",");
+                            }
+                            first = false;
+                            json.append("{");
+                            json.append("\"sessionStart\":").append(toJsonString(rs.getString("session_start"))).append(",");
+                            json.append("\"sessionEnd\":").append(toJsonString(rs.getString("session_end"))).append(",");
+                            json.append("\"durationSeconds\":").append(rs.getLong("duration_seconds"));
+                            json.append("}");
+                        }
+                        json.append("]");
+                        return json.toString();
+                    }
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to query player sessions", ex);
+                return "[]";
+            }
+        }
+    }
+
+    public static void recordServerMetrics(double tps, int playerCount, int entityCount) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                
+                // Get memory stats
+                Runtime runtime = Runtime.getRuntime();
+                long ramUsedMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024);
+                long ramMaxMb = runtime.maxMemory() / (1024 * 1024);
+                
+                // Get CPU usage
+                double cpuUsage = com.sun.management.OperatingSystemMXBean.class.isInstance(
+                    java.lang.management.ManagementFactory.getOperatingSystemMXBean()
+                ) ? ((com.sun.management.OperatingSystemMXBean) java.lang.management.ManagementFactory.getOperatingSystemMXBean()).getSystemCpuLoad() * 100 : 0;
+                
+                String sql = "INSERT INTO server_metrics (recorded_at, tps, ram_used_mb, ram_max_mb, cpu_usage, entity_count, player_count) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)";
+                try (PreparedStatement statement = conn.prepareStatement(sql)) {
+                    statement.setString(1, Instant.now().toString());
+                    statement.setDouble(2, tps);
+                    statement.setLong(3, ramUsedMb);
+                    statement.setLong(4, ramMaxMb);
+                    statement.setDouble(5, cpuUsage);
+                    statement.setInt(6, entityCount);
+                    statement.setInt(7, playerCount);
+                    statement.executeUpdate();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.debug("Failed to record server metrics", ex);
+            }
+        }
+    }
+
+    public static String getServerMetricsJson() {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT " +
+                    "AVG(tps) AS avg_tps, " +
+                    "MAX(tps) AS max_tps, " +
+                    "MIN(tps) AS min_tps, " +
+                    "AVG(ram_used_mb) AS avg_ram_used, " +
+                    "MAX(ram_used_mb) AS max_ram_used, " +
+                    "AVG(cpu_usage) AS avg_cpu, " +
+                    "AVG(entity_count) AS avg_entities, " +
+                    "MAX(entity_count) AS max_entities, " +
+                    "AVG(player_count) AS avg_players " +
+                    "FROM server_metrics WHERE recorded_at > datetime('now', '-1 hour')";
+                try (Statement statement = conn.createStatement(); ResultSet rs = statement.executeQuery(sql)) {
+                    if (rs.next()) {
+                        return "{" +
+                            "\"avgTps\":" + String.format("%.2f", rs.getDouble("avg_tps")) + "," +
+                            "\"maxTps\":" + String.format("%.2f", rs.getDouble("max_tps")) + "," +
+                            "\"minTps\":" + String.format("%.2f", rs.getDouble("min_tps")) + "," +
+                            "\"avgRamUsedMb\":" + rs.getLong("avg_ram_used") + "," +
+                            "\"maxRamUsedMb\":" + rs.getLong("max_ram_used") + "," +
+                            "\"avgCpuUsage\":" + String.format("%.2f", rs.getDouble("avg_cpu")) + "," +
+                            "\"avgEntities\":" + rs.getLong("avg_entities") + "," +
+                            "\"maxEntities\":" + rs.getLong("max_entities") + "," +
+                            "\"avgPlayers\":" + rs.getLong("avg_players") +
+                            "}";
+                    }
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to query server metrics", ex);
+            }
+            return "{\"avgTps\":0,\"maxTps\":0,\"minTps\":0,\"avgRamUsedMb\":0,\"maxRamUsedMb\":0,\"avgCpuUsage\":0,\"avgEntities\":0,\"maxEntities\":0,\"avgPlayers\":0}";
+        }
+    }
+
+    public static String getMetricsHistoryJson(int limit) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT recorded_at, tps, ram_used_mb, ram_max_mb, cpu_usage, entity_count, player_count " +
+                    "FROM server_metrics ORDER BY recorded_at DESC LIMIT ?";
+                try (PreparedStatement statement = conn.prepareStatement(sql)) {
+                    statement.setInt(1, limit);
+                    try (ResultSet rs = statement.executeQuery()) {
+                        StringBuilder json = new StringBuilder();
+                        json.append("[");
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) {
+                                json.append(",");
+                            }
+                            first = false;
+                            json.append("{");
+                            json.append("\"recordedAt\":").append(toJsonString(rs.getString("recorded_at"))).append(",");
+                            json.append("\"tps\":").append(String.format("%.2f", rs.getDouble("tps"))).append(",");
+                            json.append("\"ramUsedMb\":").append(rs.getLong("ram_used_mb")).append(",");
+                            json.append("\"ramMaxMb\":").append(rs.getLong("ram_max_mb")).append(",");
+                            json.append("\"cpuUsage\":").append(String.format("%.2f", rs.getDouble("cpu_usage"))).append(",");
+                            json.append("\"entityCount\":").append(rs.getInt("entity_count")).append(",");
+                            json.append("\"playerCount\":").append(rs.getInt("player_count"));
+                            json.append("}");
+                        }
+                        json.append("]");
+                        return json.toString();
+                    }
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to query metrics history", ex);
                 return "[]";
             }
         }
@@ -369,6 +570,33 @@ public final class PlayerAnalyticsDb {
                     ")"
                 );
                 statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS player_afk_data (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "player_uuid TEXT NOT NULL, " +
+                        "afk_start TEXT NOT NULL, " +
+                        "afk_end TEXT NOT NULL, " +
+                        "afk_duration_seconds INTEGER NOT NULL" +
+                    ")"
+                );
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_afk_player ON player_afk_data(player_uuid)"
+                );
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS server_metrics (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "recorded_at TEXT NOT NULL, " +
+                        "tps REAL NOT NULL, " +
+                        "ram_used_mb INTEGER NOT NULL, " +
+                        "ram_max_mb INTEGER NOT NULL, " +
+                        "cpu_usage REAL NOT NULL, " +
+                        "entity_count INTEGER NOT NULL, " +
+                        "player_count INTEGER NOT NULL" +
+                    ")"
+                );
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON server_metrics(recorded_at)"
+                );
+                statement.executeUpdate(
                     "CREATE INDEX IF NOT EXISTS idx_session_player ON player_session_data(player_uuid)"
                 );
                 statement.executeUpdate(
@@ -382,7 +610,109 @@ public final class PlayerAnalyticsDb {
 
     public static void startSession(ServerPlayer player) {
         activeSessions.put(player.getUUID(), Instant.now());
+        lastActivityTime.put(player.getUUID(), Instant.now());
+        afkStartTime.remove(player.getUUID());
         PlayeranalyticsForgeMod.LOGGER.debug("Started session for player: {} ({})", player.getGameProfile().getName(), player.getUUID());
+    }
+
+    public static void recordPlayerActivity(UUID playerUuid) {
+        Instant now = Instant.now();
+        Instant lastActivity = lastActivityTime.get(playerUuid);
+        
+        // Only update if enough time has passed (to avoid excessive updates)
+        if (lastActivity == null || Duration.between(lastActivity, now).getSeconds() >= 10) {
+            lastActivityTime.put(playerUuid, now);
+            
+            // If player was AFK, record the AFK period
+            Instant afkStart = afkStartTime.get(playerUuid);
+            if (afkStart != null) {
+                long afkDurationSeconds = Duration.between(afkStart, now).getSeconds();
+                recordAfkPeriod(playerUuid, afkStart, now, afkDurationSeconds);
+                afkStartTime.remove(playerUuid);
+            }
+        }
+    }
+
+    public static void checkAndRecordAfkStatus(UUID playerUuid) {
+        Instant now = Instant.now();
+        Instant lastActivity = lastActivityTime.get(playerUuid);
+        
+        if (lastActivity == null) {
+            return;
+        }
+        
+        long idleSeconds = Duration.between(lastActivity, now).getSeconds();
+        
+        if (idleSeconds >= AFK_TIMEOUT_SECONDS) {
+            // Player is AFK
+            if (afkStartTime.get(playerUuid) == null) {
+                afkStartTime.put(playerUuid, now.minusSeconds(idleSeconds));
+            }
+        } else {
+            // Player is active
+            afkStartTime.remove(playerUuid);
+        }
+    }
+
+    private static void recordAfkPeriod(UUID playerUuid, Instant afkStart, Instant afkEnd, long afkDurationSeconds) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "INSERT INTO player_afk_data (player_uuid, afk_start, afk_end, afk_duration_seconds) VALUES (?, ?, ?, ?)";
+                try (PreparedStatement statement = conn.prepareStatement(sql)) {
+                    statement.setString(1, playerUuid.toString());
+                    statement.setString(2, afkStart.toString());
+                    statement.setString(3, afkEnd.toString());
+                    statement.setLong(4, afkDurationSeconds);
+                    statement.executeUpdate();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.debug("Failed to record AFK period", ex);
+            }
+        }
+    }
+
+    public static String getPlaytimeDetailsJson() {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT " +
+                    "p.player_uuid, " +
+                    "p.player_name, " +
+                    "COALESCE(p.total_playtime_seconds, 0) AS total_playtime_seconds, " +
+                    "COALESCE(SUM(a.afk_duration_seconds), 0) AS total_afk_seconds, " +
+                    "COALESCE(p.total_playtime_seconds, 0) - COALESCE(SUM(a.afk_duration_seconds), 0) AS active_playtime_seconds, " +
+                    "COUNT(DISTINCT CASE WHEN a.afk_duration_seconds > 0 THEN a.id END) AS afk_periods " +
+                    "FROM player_stats p " +
+                    "LEFT JOIN player_afk_data a ON a.player_uuid = p.player_uuid " +
+                    "GROUP BY p.player_uuid, p.player_name, p.total_playtime_seconds " +
+                    "ORDER BY p.total_playtime_seconds DESC";
+                try (Statement statement = conn.createStatement(); ResultSet rs = statement.executeQuery(sql)) {
+                    StringBuilder json = new StringBuilder();
+                    json.append("[");
+                    boolean first = true;
+                    while (rs.next()) {
+                        if (!first) {
+                            json.append(",");
+                        }
+                        first = false;
+                        json.append("{");
+                        json.append("\"playerUuid\":").append(toJsonString(rs.getString("player_uuid"))).append(",");
+                        json.append("\"playerName\":").append(toJsonString(rs.getString("player_name"))).append(",");
+                        json.append("\"totalPlaytimeSeconds\":").append(rs.getLong("total_playtime_seconds")).append(",");
+                        json.append("\"totalAfkSeconds\":").append(rs.getLong("total_afk_seconds")).append(",");
+                        json.append("\"activePlaytimeSeconds\":").append(rs.getLong("active_playtime_seconds")).append(",");
+                        json.append("\"afkPeriods\":").append(rs.getLong("afk_periods"));
+                        json.append("}");
+                    }
+                    json.append("]");
+                    return json.toString();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to query playtime details", ex);
+                return "[]";
+            }
+        }
     }
 
     public static void endSession(ServerPlayer player) {
