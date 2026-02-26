@@ -127,10 +127,10 @@
 ### Commands
 - [x] `/analytics` - Show own stats
 - [x] `/analytics <player>` - Show other player stats
-- [ ] `/analytics reload` - Reload config
-- [ ] `/analytics export` - Export data
-- [ ] `/analytics debug` - Print diagnostics
-- [ ] `/analytics compare <player1> <player2>` - Compare players
+- [x] `/analytics reload` - Reload config
+- [x] `/analytics export` - Export data
+- [x] `/analytics debug` - Print diagnostics
+- [x] `/analytics compare <player1> <player2>` - Compare players
 - [x] `/analytics leaderboard [category]` - Show top players
 
 ### Player Notes & Moderation
