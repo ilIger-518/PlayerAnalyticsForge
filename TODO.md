@@ -48,7 +48,7 @@
 - [x] Player profile pages (individual player stats)
 - [ ] Server overview dashboard
 - [ ] Real-time player list (currently online)
-- [ ] Leaderboards (most active, highest K/D, longest playtime)
+- [x] Leaderboards (most active, highest K/D, longest playtime)
 - [ ] Sorting and filtering for tables
 - [ ] Search functionality
 - [ ] Date range selectors for graphs
@@ -62,7 +62,7 @@
 - [x] `/api/sessions/insights` - Session analytics
 - [x] `/api/activity/trends` - Daily activity trends
 - [x] `/api/activity/hourly` - Hourly activity distribution
-- [ ] `/api/leaderboard/{type}` - Top players by metric
+- [x] `/api/leaderboard/{type}` - Top players by metric
 - [ ] `/api/network` - Multi-server network stats (future)
 
 ## 🔧 Server Performance Monitoring
@@ -131,7 +131,7 @@
 - [ ] `/analytics export` - Export data
 - [ ] `/analytics debug` - Print diagnostics
 - [ ] `/analytics compare <player1> <player2>` - Compare players
-- [ ] `/analytics leaderboard [category]` - Show top players
+- [x] `/analytics leaderboard [category]` - Show top players
 
 ### Player Notes & Moderation
 - [ ] Add notes to player profiles (admin only)

@@ -1454,4 +1454,110 @@ public final class PlayerAnalyticsDb {
             }
         }
     }
+
+    public static String getLeaderboardJson(String type, int limit) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql;
+                
+                // Determine query based on leaderboard type
+                switch (type.toLowerCase()) {
+                    case "playtime":
+                        sql = "SELECT player_uuid, player_name, total_playtime_seconds AS value " +
+                              "FROM player_stats " +
+                              "ORDER BY total_playtime_seconds DESC " +
+                              "LIMIT ?";
+                        break;
+                    case "kd_ratio":
+                        sql = "SELECT player_uuid, player_name, " +
+                              "CAST(total_kills AS FLOAT) / NULLIF(total_deaths, 0) AS value " +
+                              "FROM player_stats " +
+                              "WHERE total_kills > 0 " +
+                              "ORDER BY value DESC " +
+                              "LIMIT ?";
+                        break;
+                    case "kill_streak":
+                        sql = "SELECT player_uuid, player_name, max_kill_streak AS value " +
+                              "FROM player_stats " +
+                              "WHERE max_kill_streak > 0 " +
+                              "ORDER BY max_kill_streak DESC " +
+                              "LIMIT ?";
+                        break;
+                    case "total_kills":
+                        sql = "SELECT player_uuid, player_name, total_kills AS value " +
+                              "FROM player_stats " +
+                              "ORDER BY total_kills DESC " +
+                              "LIMIT ?";
+                        break;
+                    case "deaths":
+                        sql = "SELECT player_uuid, player_name, total_deaths AS value " +
+                              "FROM player_stats " +
+                              "ORDER BY total_deaths DESC " +
+                              "LIMIT ?";
+                        break;
+                    case "sessions":
+                        sql = "SELECT ps.player_uuid, ps.player_name, COUNT(psd.id) AS value " +
+                              "FROM player_stats ps " +
+                              "LEFT JOIN player_session_data psd ON ps.player_uuid = psd.player_uuid " +
+                              "GROUP BY ps.player_uuid, ps.player_name " +
+                              "ORDER BY value DESC " +
+                              "LIMIT ?";
+                        break;
+                    case "pvp_kills":
+                        sql = "SELECT player_uuid, player_name, pvp_kills AS value " +
+                              "FROM player_stats " +
+                              "WHERE pvp_kills > 0 " +
+                              "ORDER BY pvp_kills DESC " +
+                              "LIMIT ?";
+                        break;
+                    case "pve_kills":
+                        sql = "SELECT player_uuid, player_name, pve_kills AS value " +
+                              "FROM player_stats " +
+                              "WHERE pve_kills > 0 " +
+                              "ORDER BY pve_kills DESC " +
+                              "LIMIT ?";
+                        break;
+                    default:
+                        return "{\"error\":\"Invalid leaderboard type\"}";
+                }
+                
+                StringBuilder json = new StringBuilder("[");
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setInt(1, limit);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        boolean first = true;
+                        int rank = 1;
+                        while (rs.next()) {
+                            if (!first) json.append(",");
+                            json.append("{\"rank\":").append(rank++)
+                                .append(",\"player_uuid\":\"").append(rs.getString("player_uuid"))
+                                .append("\",\"player_name\":").append(toJsonString(rs.getString("player_name")))
+                                .append(",\"value\":");
+                            
+                            // Format value based on type
+                            if ("kd_ratio".equals(type.toLowerCase())) {
+                                double value = rs.getDouble("value");
+                                json.append(String.format("%.2f", value));
+                            } else if ("playtime".equals(type.toLowerCase())) {
+                                long seconds = rs.getLong("value");
+                                json.append(seconds); // Return seconds, format on client side
+                            } else {
+                                json.append(rs.getInt("value"));
+                            }
+                            
+                            json.append("}");
+                            first = false;
+                        }
+                    }
+                }
+                json.append("]");
+                
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get leaderboard data for type: {}", type, ex);
+                return "[{\"error\":\"Failed to retrieve leaderboard\"}]";
+            }
+        }
+    }
 }

@@ -52,6 +52,7 @@ public final class AnalyticsWebServer {
             server.createContext("/api/activity/trends", exchange -> handleJson(exchange, PlayerAnalyticsDb.getActivityTrendsJson(readLimit(exchange))));
             server.createContext("/api/activity/hourly", exchange -> handleJson(exchange, PlayerAnalyticsDb.getHourlyActivityJson()));
             server.createContext("/api/sessions/insights", exchange -> handleJson(exchange, PlayerAnalyticsDb.getSessionInsightsJson()));
+            server.createContext("/api/leaderboard/", new LeaderboardHandler());
             server.createContext("/api/player/", new PlayerHandler());
             server.createContext("/player/", new PlayerPageHandler());
             server.setExecutor(null);
@@ -387,6 +388,89 @@ public final class AnalyticsWebServer {
                 <div class=\"pill\">Hourly Activity (Peak Hours)</div>
                 <div style=\"position: relative; height: 300px;\">
                   <canvas id=\"hourlyActivityChart\"></canvas>
+                </div>
+              </section>
+              <section class=\"card card-full\">
+                <div class=\"pill\">Leaderboards</div>
+                <div style=\"display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));\">
+                  <div>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">🏆 Most Active (Playtime)</h3>
+                    <table style=\"margin-top: 8px;\">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Player</th>
+                          <th>Time</th>
+                        </tr>
+                      </thead>
+                      <tbody id=\"leaderboard-playtime\"></tbody>
+                    </table>
+                  </div>
+                  <div>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">⚔️ Highest K/D Ratio</h3>
+                    <table style=\"margin-top: 8px;\">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Player</th>
+                          <th>K/D</th>
+                        </tr>
+                      </thead>
+                      <tbody id=\"leaderboard-kd\"></tbody>
+                    </table>
+                  </div>
+                  <div>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">🔥 Longest Kill Streak</h3>
+                    <table style=\"margin-top: 8px;\">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Player</th>
+                          <th>Streak</th>
+                        </tr>
+                      </thead>
+                      <tbody id=\"leaderboard-streak\"></tbody>
+                    </table>
+                  </div>
+                  <div>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">💀 Total Kills</h3>
+                    <table style=\"margin-top: 8px;\">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Player</th>
+                          <th>Kills</th>
+                        </tr>
+                      </thead>
+                      <tbody id=\"leaderboard-kills\"></tbody>
+                    </table>
+                  </div>
+                  <div>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">⚡ PvP Kills</h3>
+                    <table style=\"margin-top: 8px;\">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Player</th>
+                          <th>PvP</th>
+                        </tr>
+                      </thead>
+                      <tbody id=\"leaderboard-pvp\"></tbody>
+                    </table>
+                  </div>
+                  <div>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">📊 Most Sessions</h3>
+                    <table style=\"margin-top: 8px;\">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Player</th>
+                          <th>Sessions</th>
+                        </tr>
+                      </thead>
+                      <tbody id=\"leaderboard-sessions\"></tbody>
+                    </table>
+                  </div>
                 </div>
               </section>
             </main>
@@ -773,8 +857,41 @@ public final class AnalyticsWebServer {
                 });
               }
 
+              async function loadLeaderboards() {
+                const types = [
+                  { type: 'playtime', id: 'leaderboard-playtime', formatter: (val) => {
+                    const hours = Math.floor(val / 3600);
+                    const minutes = Math.floor((val % 3600) / 60);
+                    return `${hours}h ${minutes}m`;
+                  }},
+                  { type: 'kd_ratio', id: 'leaderboard-kd', formatter: (val) => val.toFixed(2) },
+                  { type: 'kill_streak', id: 'leaderboard-streak', formatter: (val) => val },
+                  { type: 'total_kills', id: 'leaderboard-kills', formatter: (val) => val },
+                  { type: 'pvp_kills', id: 'leaderboard-pvp', formatter: (val) => val },
+                  { type: 'sessions', id: 'leaderboard-sessions', formatter: (val) => val }
+                ];
+
+                for (const leaderboard of types) {
+                  const res = await fetch(`/api/leaderboard/${leaderboard.type}?limit=10`);
+                  const data = await res.json();
+                  const tbody = document.getElementById(leaderboard.id);
+                  tbody.innerHTML = "";
+
+                  data.forEach(entry => {
+                    if (entry.error) return;
+                    const row = document.createElement("tr");
+                    const rankStyle = entry.rank === 1 ? 'color: #FFD700; font-weight: bold;' :
+                                     entry.rank === 2 ? 'color: #C0C0C0; font-weight: bold;' :
+                                     entry.rank === 3 ? 'color: #CD7F32; font-weight: bold;' : '';
+                    const playerLink = `<a href="/player/${entry.player_uuid}" style="color: var(--accent); text-decoration: none;">${entry.player_name}</a>`;
+                    row.innerHTML = `<td style="${rankStyle}">${entry.rank}</td><td>${playerLink}</td><td>${leaderboard.formatter(entry.value)}</td>`;
+                    tbody.appendChild(row);
+                  });
+                }
+              }
+
               async function refreshAll() {
-                await Promise.all([loadSummary(), loadEvents(), loadPlayers(), loadSessions(), loadKills(), loadPlaytimeDetails(), loadPlaytimeChart(), loadKillsChart(), loadServerMetrics(), loadCombatStats(), loadWeaponChart(), loadSessionInsights(), loadActivityTrends(), loadHourlyActivity()]);
+                await Promise.all([loadSummary(), loadEvents(), loadPlayers(), loadSessions(), loadKills(), loadPlaytimeDetails(), loadPlaytimeChart(), loadKillsChart(), loadServerMetrics(), loadCombatStats(), loadWeaponChart(), loadSessionInsights(), loadActivityTrends(), loadHourlyActivity(), loadLeaderboards()]);
               }
 
               refreshAll();
@@ -1025,6 +1142,34 @@ public final class AnalyticsWebServer {
             }
             
             String json = PlayerAnalyticsDb.getKillMatrixJson(killerUuid);
+            handleJson(exchange, json);
+        }
+    }
+
+    static class LeaderboardHandler implements com.sun.net.httpserver.HttpHandler {
+        @Override
+        public void handle(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+            String path = exchange.getRequestURI().getPath();
+            String type = path.replace("/api/leaderboard/", "");
+            
+            if (type.isEmpty()) {
+                handleJson(exchange, "{\"error\":\"Leaderboard type required\"}");
+                return;
+            }
+            
+            // Parse limit from query parameters
+            Map<String, String> params = parseQuery(exchange.getRequestURI());
+            int limit = 10; // Default limit
+            try {
+                String limitStr = params.get("limit");
+                if (limitStr != null) {
+                    limit = Math.max(1, Math.min(Integer.parseInt(limitStr), 50));
+                }
+            } catch (NumberFormatException e) {
+                // Use default
+            }
+            
+            String json = PlayerAnalyticsDb.getLeaderboardJson(type, limit);
             handleJson(exchange, json);
         }
     }
