@@ -254,6 +254,8 @@ config/playeranalytics-common.toml
 
 PlayerAnalytics can send real-time event notifications to Discord using a bot token. This allows server admins and moderators to stay informed about player activity without accessing the web dashboard.
 
+**Status**: Discord bot login works, but embed sending is currently blocked by a JDA beta method mismatch (see troubleshooting).
+
 ### Setting Up the Discord Bot
 
 1. **Create a Discord App and Bot**:
@@ -396,6 +398,13 @@ Discord notifications include:
 4. Check the bot has `Send Messages` and `Embed Links` permissions
 5. Enable specific notification types: `notifyJoins = true`, etc.
 6. Look for error messages in server logs
+
+**Problem**: `NoSuchMethodException: net.dv8tion.jda.api.EmbedBuilder.setTimestamp`
+
+**Solutions**:
+1. This indicates a JDA beta API mismatch with embed timestamp handling
+2. Temporarily disable timestamp setting in the Discord embed builder
+3. Update the integration to use the correct method name for the JDA version in use
 
 ---
 
