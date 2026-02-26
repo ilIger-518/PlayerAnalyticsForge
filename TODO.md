@@ -46,7 +46,7 @@
   - [x] Hourly activity heatmap
   - [ ] Geographic distribution map
 - [x] Player profile pages (individual player stats)
-- [ ] Server overview dashboard
+- [x] Server overview dashboard
 - [x] Real-time player list (currently online)
 - [x] Leaderboards (most active, highest K/D, longest playtime)
 - [ ] Sorting and filtering for tables

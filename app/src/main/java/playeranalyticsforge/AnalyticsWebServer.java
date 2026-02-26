@@ -223,6 +223,57 @@ public final class AnalyticsWebServer {
                 color: var(--muted);
                 font-size: 12px;
               }
+              .overview {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                border: none;
+                box-shadow: 0 20px 60px rgba(102, 126, 234, 0.3);
+              }
+              .overview-grid {
+                display: grid;
+                gap: 16px;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                margin-top: 16px;
+              }
+              .overview-metric {
+                background: rgba(255, 255, 255, 0.15);
+                border-radius: 12px;
+                padding: 16px;
+                backdrop-filter: blur(10px);
+              }
+              .overview-metric-label {
+                font-size: 12px;
+                opacity: 0.9;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-bottom: 8px;
+              }
+              .overview-metric-value {
+                font-size: 28px;
+                font-weight: 700;
+                line-height: 1;
+              }
+              .overview-metric-sub {
+                font-size: 13px;
+                opacity: 0.8;
+                margin-top: 4px;
+              }
+              .status-indicator {
+                display: inline-block;
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                margin-right: 6px;
+                animation: pulse 2s ease-in-out infinite;
+              }
+              .status-online {
+                background: #10b981;
+                box-shadow: 0 0 10px #10b981;
+              }
+              @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.5; }
+              }
             </style>
           </head>
           <body>
@@ -231,6 +282,45 @@ public final class AnalyticsWebServer {
               <p>Local server dashboard. Refreshes automatically.</p>
             </header>
             <main>
+              <section class=\"card card-full overview\">
+                <div style=\"display: flex; align-items: center; margin-bottom: 4px;\">
+                  <span class=\"status-indicator status-online\"></span>
+                  <h2 style=\"margin: 0; font-size: 24px; font-weight: 600;\">Server Overview</h2>
+                </div>
+                <p style=\"opacity: 0.9; margin-bottom: 16px;\">Real-time server health and statistics</p>
+                <div class=\"overview-grid\">
+                  <div class=\"overview-metric\">
+                    <div class=\"overview-metric-label\">Server Performance</div>
+                    <div class=\"overview-metric-value\" id=\"overview-tps\">20.0</div>
+                    <div class=\"overview-metric-sub\" id=\"overview-tps-status\">TPS (Excellent)</div>
+                  </div>
+                  <div class=\"overview-metric\">
+                    <div class=\"overview-metric-label\">Memory Usage</div>
+                    <div class=\"overview-metric-value\" id=\"overview-ram\">0 MB</div>
+                    <div class=\"overview-metric-sub\" id=\"overview-ram-percent\">0% utilized</div>
+                  </div>
+                  <div class=\"overview-metric\">
+                    <div class=\"overview-metric-label\">Online Players</div>
+                    <div class=\"overview-metric-value\" id=\"overview-online\">0</div>
+                    <div class=\"overview-metric-sub\" id=\"overview-total-players\">0 total players</div>
+                  </div>
+                  <div class=\"overview-metric\">
+                    <div class=\"overview-metric-label\">Recent Activity</div>
+                    <div class=\"overview-metric-value\" id=\"overview-activity\">0</div>
+                    <div class=\"overview-metric-sub\">events today</div>
+                  </div>
+                  <div class=\"overview-metric\">
+                    <div class=\"overview-metric-label\">Total Playtime</div>
+                    <div class=\"overview-metric-value\" id=\"overview-playtime\">0h</div>
+                    <div class=\"overview-metric-sub\" id=\"overview-sessions\">0 sessions</div>
+                  </div>
+                  <div class=\"overview-metric\">
+                    <div class=\"overview-metric-label\">Combat Stats</div>
+                    <div class=\"overview-metric-value\" id=\"overview-kills\">0</div>
+                    <div class=\"overview-metric-sub\" id=\"overview-deaths\">0 deaths</div>
+                  </div>
+                </div>
+              </section>
               <section class=\"card\">
                 <div class=\"pill\">Summary</div>
                 <div class=\"stat\" id=\"summary-joins\">0 joins</div>
@@ -897,6 +987,66 @@ public final class AnalyticsWebServer {
                 }
               }
 
+              async function loadServerOverview() {
+                // Fetch data from multiple endpoints
+                const [summaryRes, metricsRes, onlineRes] = await Promise.all([
+                  fetch("/api/summary"),
+                  fetch("/api/metrics"),
+                  fetch("/api/players/online")
+                ]);
+                
+                const summary = await summaryRes.json();
+                const metrics = await metricsRes.json();
+                const online = await onlineRes.json();
+                
+                // TPS with status
+                const tps = metrics.avgTps || 20;
+                document.getElementById("overview-tps").textContent = tps.toFixed(1);
+                let tpsStatus = "Excellent";
+                if (tps < 10) tpsStatus = "Critical";
+                else if (tps < 15) tpsStatus = "Poor";
+                else if (tps < 18) tpsStatus = "Fair";
+                else if (tps < 19.5) tpsStatus = "Good";
+                document.getElementById("overview-tps-status").textContent = `TPS (${tpsStatus})`;
+                
+                // RAM with percentage
+                const ramMB = Math.round(metrics.avgRamUsedMb || 0);
+                document.getElementById("overview-ram").textContent = `${ramMB} MB`;
+                const ramMaxMB = ramMB > 0 ? Math.round(ramMB / 0.7) : 0; // Estimate max
+                const ramPercent = ramMaxMB > 0 ? Math.round((ramMB / ramMaxMB) * 100) : 0;
+                document.getElementById("overview-ram-percent").textContent = `${ramPercent}% utilized`;
+                
+                // Online players
+                document.getElementById("overview-online").textContent = online.length;
+                document.getElementById("overview-total-players").textContent = `${summary.uniquePlayers} total players`;
+                
+                // Recent activity (joins + leaves today)
+                const activityCount = summary.joins + summary.leaves;
+                document.getElementById("overview-activity").textContent = activityCount;
+                
+                // Total playtime
+                const playtimeHours = Math.floor(summary.totalPlaytimeSeconds / 3600);
+                document.getElementById("overview-playtime").textContent = `${playtimeHours}h`;
+                document.getElementById("overview-sessions").textContent = `${summary.totalSessions} sessions`;
+                
+                // Combat stats (fetch from combat endpoint)
+                try {
+                  const combatRes = await fetch("/api/combat");
+                  const combat = await combatRes.json();
+                  let totalKills = 0;
+                  let totalDeaths = 0;
+                  combat.forEach(player => {
+                    totalKills += player.total_kills || 0;
+                    totalDeaths += player.total_deaths || 0;
+                  });
+                  document.getElementById("overview-kills").textContent = totalKills;
+                  document.getElementById("overview-deaths").textContent = `${totalDeaths} deaths`;
+                } catch (e) {
+                  document.getElementById("overview-kills").textContent = "0";
+                  document.getElementById("overview-deaths").textContent = "0 deaths";
+                }
+              }
+
               async function loadOnlinePlayers() {
                 const res = await fetch("/api/players/online");
                 const data = await res.json();
@@ -941,7 +1091,7 @@ public final class AnalyticsWebServer {
               }
 
               async function refreshAll() {
-                await Promise.all([loadSummary(), loadEvents(), loadPlayers(), loadSessions(), loadKills(), loadPlaytimeDetails(), loadPlaytimeChart(), loadKillsChart(), loadServerMetrics(), loadCombatStats(), loadWeaponChart(), loadSessionInsights(), loadActivityTrends(), loadHourlyActivity(), loadLeaderboards(), loadOnlinePlayers()]);
+                await Promise.all([loadServerOverview(), loadSummary(), loadEvents(), loadPlayers(), loadSessions(), loadKills(), loadPlaytimeDetails(), loadPlaytimeChart(), loadKillsChart(), loadServerMetrics(), loadCombatStats(), loadWeaponChart(), loadSessionInsights(), loadActivityTrends(), loadHourlyActivity(), loadLeaderboards(), loadOnlinePlayers()]);
               }
 
               refreshAll();
