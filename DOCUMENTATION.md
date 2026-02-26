@@ -1,6 +1,6 @@
 # PlayerAnalytics Mod Documentation
 
-**Version**: 0.1  
+**Version**: 1.0  
 **Minecraft Version**: 1.20.1  
 **Mod Loader**: Minecraft Forge 47.3.0  
 **License**: MIT  
@@ -100,7 +100,7 @@
 ### Installation Steps
 
 1. **Download the Mod**
-   - Place `PlayerAnalytics-1.20.1-0.1.jar` in your server's `mods` folder
+   - Place `PlayerAnalytics-1.20.1-1.0.jar` in your server's `mods` folder
 
 2. **Start Server**
    ```bash
@@ -1017,7 +1017,7 @@ app/
 
 ## Version History
 
-### v0.1 (Current)
+### v1.0 (Current)
 - Core analytics framework
 - Combat statistics
 - Web dashboard with sorting/filtering
