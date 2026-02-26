@@ -15,16 +15,16 @@
 - [x] Total playtime per player
 - [x] Active playtime (exclude AFK time)
 - [x] AFK detection (no movement/interaction for X minutes)
-- [ ] Session insights (average session length, sessions per day)
-- [ ] Login/logout timestamps with timezone support
+- [x] Session insights (average session length, sessions per day)
+- [x] Login/logout timestamps with timezone support
 
 ### Player Retention & Activity
-- [ ] New vs returning player classification
-- [ ] Player retention metrics (1-day, 7-day, 30-day)
-- [ ] Last seen timestamps
-- [ ] Activity calendar heatmap (days active per month)
-- [ ] Hourly activity graph (peak hours)
-- [ ] Daily/weekly/monthly activity trends
+- [x] New vs returning player classification
+- [x] Player retention metrics (1-day, 7-day, 30-day)
+- [x] Last seen timestamps
+- [x] Activity calendar heatmap (days active per month)
+- [x] Hourly activity graph (peak hours)
+- [x] Daily/weekly/monthly activity trends
 - [ ] Player churn analysis
 
 ### Combat Statistics
@@ -40,10 +40,10 @@
 
 ### UI Components
 - [x] Advanced graphs and charts (Chart.js or similar)
-  - [ ] Player count over time (line graph)
-  - [ ] Join/leaves per day (bar chart)
+  - [x] Player count over time (line graph)
+  - [x] Join/leaves per day (bar chart)
   - [x] Playtime distribution (pie chart)
-  - [ ] Hourly activity heatmap
+  - [x] Hourly activity heatmap
   - [ ] Geographic distribution map
 - [x] Player profile pages (individual player stats)
 - [ ] Server overview dashboard
@@ -56,9 +56,12 @@
 ### API Endpoints (REST)
 - [x] `/api/player/{uuid}` - Individual player details
 - [x] `/api/player/{uuid}/sessions` - Player session history
-- [ ] `/api/player/{uuid}/kills` - Player kill history
-- [ ] `/api/server/performance` - TPS, RAM, CPU stats
-- [ ] `/api/server/activity` - Activity graphs data
+- [x] `/api/player/{uuid}/kills` - Player kill history
+- [x] `/api/server/performance` - TPS, RAM, CPU stats
+- [x] `/api/server/activity` - Activity graphs data
+- [x] `/api/sessions/insights` - Session analytics
+- [x] `/api/activity/trends` - Daily activity trends
+- [x] `/api/activity/hourly` - Hourly activity distribution
 - [ ] `/api/leaderboard/{type}` - Top players by metric
 - [ ] `/api/network` - Multi-server network stats (future)
 

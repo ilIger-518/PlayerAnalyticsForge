@@ -39,6 +39,37 @@ public final class PlayerAnalyticsDb {
                     statement.setString(4, Instant.now().toString());
                     statement.executeUpdate();
                 }
+                
+                // Track first join date
+                if ("join".equals(eventType)) {
+                    String checkSql = "SELECT first_join FROM player_stats WHERE player_uuid = ?";
+                    try (PreparedStatement checkStmt = conn.prepareStatement(checkSql)) {
+                        checkStmt.setString(1, player.getUUID().toString());
+                        try (ResultSet rs = checkStmt.executeQuery()) {
+                            if (!rs.next() || rs.getString("first_join") == null) {
+                                // First time joining or first_join not set
+                                String updateSql = "INSERT INTO player_stats (player_uuid, player_name, first_join) " +
+                                    "VALUES (?, ?, ?) " +
+                                    "ON CONFLICT(player_uuid) DO UPDATE SET first_join = COALESCE(first_join, excluded.first_join)";
+                                try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
+                                    updateStmt.setString(1, player.getUUID().toString());
+                                    updateStmt.setString(2, player.getGameProfile().getName());
+                                    updateStmt.setString(3, Instant.now().toString());
+                                    updateStmt.executeUpdate();
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Track hourly activity
+                    int hour = java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC).getHour();
+                    String hourlySql = "INSERT INTO hourly_activity (hour_of_day, join_count) VALUES (?, 1) " +
+                        "ON CONFLICT(hour_of_day) DO UPDATE SET join_count = join_count + 1";
+                    try (PreparedStatement hourlyStmt = conn.prepareStatement(hourlySql)) {
+                        hourlyStmt.setInt(1, hour);
+                        hourlyStmt.executeUpdate();
+                    }
+                }
             } catch (SQLException ex) {
                 PlayeranalyticsForgeMod.LOGGER.error("Failed to record player event: {}", eventType, ex);
             }
@@ -657,6 +688,15 @@ public final class PlayerAnalyticsDb {
                     PlayeranalyticsForgeMod.LOGGER.debug("max_kill_streak column already exists or migration not needed");
                 }
                 
+                try (ResultSet rs = connection.getMetaData().getColumns(null, null, "player_stats", "first_join")) {
+                    if (!rs.next()) {
+                        statement.executeUpdate("ALTER TABLE player_stats ADD COLUMN first_join TEXT");
+                        PlayeranalyticsForgeMod.LOGGER.info("Added first_join column to player_stats table");
+                    }
+                } catch (SQLException migrationEx) {
+                    PlayeranalyticsForgeMod.LOGGER.debug("first_join column already exists or migration not needed");
+                }
+                
                 // Create new tables for weapon stats and death causes
                 statement.executeUpdate(
                     "CREATE TABLE IF NOT EXISTS weapon_stats (" +
@@ -700,6 +740,33 @@ public final class PlayerAnalyticsDb {
                 
                 statement.executeUpdate(
                     "CREATE INDEX IF NOT EXISTS idx_kill_matrix_killer ON player_kill_matrix(killer_uuid)"
+                );
+                
+                // Create tables for activity tracking and insights
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS daily_activity (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "activity_date TEXT NOT NULL, " +
+                        "unique_players INTEGER NOT NULL DEFAULT 0, " +
+                        "total_sessions INTEGER NOT NULL DEFAULT 0, " +
+                        "total_joins INTEGER NOT NULL DEFAULT 0, " +
+                        "total_leaves INTEGER NOT NULL DEFAULT 0, " +
+                        "avg_session_duration INTEGER NOT NULL DEFAULT 0, " +
+                        "UNIQUE(activity_date)" +
+                    ")"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS hourly_activity (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "hour_of_day INTEGER NOT NULL, " +
+                        "join_count INTEGER NOT NULL DEFAULT 0, " +
+                        "UNIQUE(hour_of_day)" +
+                    ")"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_daily_activity_date ON daily_activity(activity_date)"
                 );
             }
 
@@ -1180,6 +1247,210 @@ public final class PlayerAnalyticsDb {
             } catch (SQLException ex) {
                 PlayeranalyticsForgeMod.LOGGER.error("Failed to get kill matrix", ex);
                 return "[]";
+            }
+        }
+    }
+
+    public static void updateDailyActivity() {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String today = java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString();
+                
+                // Count unique players who joined today
+                String uniquePlayersSql = "SELECT COUNT(DISTINCT player_uuid) FROM player_sessions " +
+                    "WHERE DATE(event_time_utc) = ? AND event_type = 'join'";
+                
+                // Count total sessions that started today
+                String sessionsSql = "SELECT COUNT(*) FROM player_session_data WHERE DATE(session_start) = ?";
+                
+                // Count joins and leaves today
+                String eventsSql = "SELECT " +
+                    "SUM(CASE WHEN event_type='join' THEN 1 ELSE 0 END) AS joins, " +
+                    "SUM(CASE WHEN event_type='leave' THEN 1 ELSE 0 END) AS leaves " +
+                    "FROM player_sessions WHERE DATE(event_time_utc) = ?";
+                
+                // Get average session duration for today
+                String avgDurationSql = "SELECT AVG(duration_seconds) FROM player_session_data WHERE DATE(session_start) = ?";
+                
+                int uniquePlayers = 0;
+                int totalSessions = 0;
+                int totalJoins = 0;
+                int totalLeaves = 0;
+                int avgDuration = 0;
+                
+                try (PreparedStatement stmt = conn.prepareStatement(uniquePlayersSql)) {
+                    stmt.setString(1, today);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) uniquePlayers = rs.getInt(1);
+                    }
+                }
+                
+                try (PreparedStatement stmt = conn.prepareStatement(sessionsSql)) {
+                    stmt.setString(1, today);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) totalSessions = rs.getInt(1);
+                    }
+                }
+                
+                try (PreparedStatement stmt = conn.prepareStatement(eventsSql)) {
+                    stmt.setString(1, today);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            totalJoins = rs.getInt("joins");
+                            totalLeaves = rs.getInt("leaves");
+                        }
+                    }
+                }
+                
+                try (PreparedStatement stmt = conn.prepareStatement(avgDurationSql)) {
+                    stmt.setString(1, today);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) avgDuration = rs.getInt(1);
+                    }
+                }
+                
+                // Insert or update daily activity
+                String insertSql = "INSERT INTO daily_activity (activity_date, unique_players, total_sessions, total_joins, total_leaves, avg_session_duration) " +
+                    "VALUES (?, ?, ?, ?, ?, ?) " +
+                    "ON CONFLICT(activity_date) DO UPDATE SET " +
+                    "unique_players = excluded.unique_players, " +
+                    "total_sessions = excluded.total_sessions, " +
+                    "total_joins = excluded.total_joins, " +
+                    "total_leaves = excluded.total_leaves, " +
+                    "avg_session_duration = excluded.avg_session_duration";
+                
+                try (PreparedStatement stmt = conn.prepareStatement(insertSql)) {
+                    stmt.setString(1, today);
+                    stmt.setInt(2, uniquePlayers);
+                    stmt.setInt(3, totalSessions);
+                    stmt.setInt(4, totalJoins);
+                    stmt.setInt(5, totalLeaves);
+                    stmt.setInt(6, avgDuration);
+                    stmt.executeUpdate();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to update daily activity", ex);
+            }
+        }
+    }
+
+    public static String getActivityTrendsJson(int days) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT * FROM daily_activity ORDER BY activity_date DESC LIMIT ?";
+                
+                StringBuilder json = new StringBuilder("[");
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setInt(1, days);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) json.append(",");
+                            json.append("{\"date\":\"").append(rs.getString("activity_date"))
+                                .append("\",\"unique_players\":").append(rs.getInt("unique_players"))
+                                .append(",\"total_sessions\":").append(rs.getInt("total_sessions"))
+                                .append(",\"total_joins\":").append(rs.getInt("total_joins"))
+                                .append(",\"total_leaves\":").append(rs.getInt("total_leaves"))
+                                .append(",\"avg_session_seconds\":").append(rs.getInt("avg_session_duration"))
+                                .append("}");
+                            first = false;
+                        }
+                    }
+                }
+                json.append("]");
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get activity trends", ex);
+                return "[]";
+            }
+        }
+    }
+
+    public static String getHourlyActivityJson() {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT hour_of_day, join_count FROM hourly_activity ORDER BY hour_of_day";
+                
+                StringBuilder json = new StringBuilder("[");
+                try (Statement stmt = conn.createStatement();
+                     ResultSet rs = stmt.executeQuery(sql)) {
+                    boolean first = true;
+                    while (rs.next()) {
+                        if (!first) json.append(",");
+                        json.append("{\"hour\":").append(rs.getInt("hour_of_day"))
+                            .append(",\"joins\":").append(rs.getInt("join_count"))
+                            .append("}");
+                        first = false;
+                    }
+                }
+                json.append("]");
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get hourly activity", ex);
+                return "[]";
+            }
+        }
+    }
+
+    public static String getSessionInsightsJson() {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                
+                // Get overall session stats
+                String overallSql = "SELECT " +
+                    "COUNT(*) AS total_sessions, " +
+                    "AVG(duration_seconds) AS avg_duration, " +
+                    "MAX(duration_seconds) AS max_duration, " +
+                    "MIN(duration_seconds) AS min_duration " +
+                    "FROM player_session_data";
+                
+                // Get sessions per day for last 30 days
+                String perDaySql = "SELECT " +
+                    "DATE(session_start) AS session_date, " +
+                    "COUNT(*) AS sessions, " +
+                    "AVG(duration_seconds) AS avg_duration " +
+                    "FROM player_session_data " +
+                    "WHERE DATE(session_start) >= DATE('now', '-30 days') " +
+                    "GROUP BY DATE(session_start) " +
+                    "ORDER BY session_date DESC";
+                
+                StringBuilder json = new StringBuilder("{");
+                
+                // Overall stats
+                try (Statement stmt = conn.createStatement();
+                     ResultSet rs = stmt.executeQuery(overallSql)) {
+                    if (rs.next()) {
+                        json.append("\"total_sessions\":").append(rs.getInt("total_sessions"))
+                            .append(",\"avg_duration_seconds\":").append(rs.getInt("avg_duration"))
+                            .append(",\"max_duration_seconds\":").append(rs.getInt("max_duration"))
+                            .append(",\"min_duration_seconds\":").append(rs.getInt("min_duration"));
+                    }
+                }
+                
+                // Per-day breakdown
+                json.append(",\"daily_sessions\":[");
+                try (Statement stmt = conn.createStatement();
+                     ResultSet rs = stmt.executeQuery(perDaySql)) {
+                    boolean first = true;
+                    while (rs.next()) {
+                        if (!first) json.append(",");
+                        json.append("{\"date\":\"").append(rs.getString("session_date"))
+                            .append("\",\"sessions\":").append(rs.getInt("sessions"))
+                            .append(",\"avg_duration\":").append(rs.getInt("avg_duration"))
+                            .append("}");
+                        first = false;
+                    }
+                }
+                json.append("]}");
+                
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get session insights", ex);
+                return "{\"error\":\"Failed to retrieve session insights\"}";
             }
         }
     }

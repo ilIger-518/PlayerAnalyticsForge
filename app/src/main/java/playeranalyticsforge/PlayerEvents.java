@@ -14,6 +14,8 @@ import net.minecraftforge.fml.common.Mod;
 public final class PlayerEvents {
     private static long tickCounter = 0;
     private static final long METRIC_RECORDING_INTERVAL = 200; // Record every 10 seconds
+    private static long activityUpdateCounter = 0;
+    private static final long ACTIVITY_UPDATE_INTERVAL = 6000; // Update every 5 minutes
 
     private PlayerEvents() {
     }
@@ -134,9 +136,16 @@ public final class PlayerEvents {
     public static void onServerTick(net.minecraftforge.event.TickEvent.ServerTickEvent event) {
         if (event.phase == net.minecraftforge.event.TickEvent.Phase.END) {
             tickCounter++;
+            activityUpdateCounter++;
+            
             if (tickCounter >= METRIC_RECORDING_INTERVAL && event.getServer() != null) {
                 tickCounter = 0;
                 recordServerMetrics(event.getServer());
+            }
+            
+            if (activityUpdateCounter >= ACTIVITY_UPDATE_INTERVAL) {
+                activityUpdateCounter = 0;
+                PlayerAnalyticsDb.updateDailyActivity();
             }
         }
     }

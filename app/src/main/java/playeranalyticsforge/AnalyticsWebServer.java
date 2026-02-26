@@ -49,6 +49,9 @@ public final class AnalyticsWebServer {
             server.createContext("/api/weapons", exchange -> handleJson(exchange, PlayerAnalyticsDb.getWeaponStatsJson()));
             server.createContext("/api/combat/deaths/", new DeathCausesHandler());
             server.createContext("/api/combat/matrix/", new KillMatrixHandler());
+            server.createContext("/api/activity/trends", exchange -> handleJson(exchange, PlayerAnalyticsDb.getActivityTrendsJson(readLimit(exchange))));
+            server.createContext("/api/activity/hourly", exchange -> handleJson(exchange, PlayerAnalyticsDb.getHourlyActivityJson()));
+            server.createContext("/api/sessions/insights", exchange -> handleJson(exchange, PlayerAnalyticsDb.getSessionInsightsJson()));
             server.createContext("/api/player/", new PlayerHandler());
             server.createContext("/player/", new PlayerPageHandler());
             server.setExecutor(null);
@@ -364,7 +367,29 @@ public final class AnalyticsWebServer {
                   </thead>
                   <tbody id="kills-body"></tbody>
                 </table>
-              </section>            </main>
+              </section>
+              <section class=\"card\">
+                <div class=\"pill\">Session Insights</div>
+                <div style=\"font-size: 13px;\">
+                  <p>Total Sessions: <strong id=\"insights-total\">-</strong></p>
+                  <p>Avg Duration: <strong id=\"insights-avg\">-</strong></p>
+                  <p>Max Duration: <strong id=\"insights-max\">-</strong></p>
+                  <p>Min Duration: <strong id=\"insights-min\">-</strong></p>
+                </div>
+              </section>
+              <section class=\"card card-full\">
+                <div class=\"pill\">Activity Trends (Last 30 Days)</div>
+                <div style=\"position: relative; height: 300px;\">
+                  <canvas id=\"activityTrendsChart\"></canvas>
+                </div>
+              </section>
+              <section class=\"card card-full\">
+                <div class=\"pill\">Hourly Activity (Peak Hours)</div>
+                <div style=\"position: relative; height: 300px;\">
+                  <canvas id=\"hourlyActivityChart\"></canvas>
+                </div>
+              </section>
+            </main>
             <div class=\"footer\">Powered by Playeranalytics Forge mod</div>
             <script>
               async function loadSummary() {
@@ -627,8 +652,129 @@ public final class AnalyticsWebServer {
                 });
               }
 
+              let activityTrendsChartInstance = null;
+              let hourlyActivityChartInstance = null;
+
+              async function loadSessionInsights() {
+                const res = await fetch(\"/api/sessions/insights\");
+                const data = await res.json();
+                
+                document.getElementById(\"insights-total\").textContent = data.total_sessions || 0;
+                
+                const avgMin = Math.floor((data.avg_duration_seconds || 0) / 60);
+                const avgSec = (data.avg_duration_seconds || 0) % 60;
+                document.getElementById(\"insights-avg\").textContent = `${avgMin}m ${avgSec}s`;
+                
+                const maxMin = Math.floor((data.max_duration_seconds || 0) / 60);
+                const maxSec = (data.max_duration_seconds || 0) % 60;
+                document.getElementById(\"insights-max\").textContent = `${maxMin}m ${maxSec}s`;
+                
+                const minMin = Math.floor((data.min_duration_seconds || 0) / 60);
+                const minSec = (data.min_duration_seconds || 0) % 60;
+                document.getElementById(\"insights-min\").textContent = `${minMin}m ${minSec}s`;
+              }
+
+              async function loadActivityTrends() {
+                const res = await fetch(\"/api/activity/trends?limit=30\");
+                const data = await res.json();
+                
+                if (data.length === 0) return;
+                
+                // Reverse to show oldest to newest
+                const reversed = data.reverse();
+                
+                const ctx = document.getElementById(\"activityTrendsChart\").getContext(\"2d\");
+                if (activityTrendsChartInstance) {
+                  activityTrendsChartInstance.destroy();
+                }
+                activityTrendsChartInstance = new Chart(ctx, {
+                  type: \"line\",
+                  data: {
+                    labels: reversed.map(d => d.date),
+                    datasets: [
+                      {
+                        label: \"Unique Players\",
+                        data: reversed.map(d => d.unique_players),
+                        borderColor: \"#36A2EB\",
+                        backgroundColor: \"rgba(54, 162, 235, 0.1)\",
+                        borderWidth: 2,
+                        tension: 0.3
+                      },
+                      {
+                        label: \"Total Sessions\",
+                        data: reversed.map(d => d.total_sessions),
+                        borderColor: \"#FF6384\",
+                        backgroundColor: \"rgba(255, 99, 132, 0.1)\",
+                        borderWidth: 2,
+                        tension: 0.3
+                      }
+                    ]
+                  },
+                  options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: {
+                        position: \"top\"
+                      }
+                    },
+                    scales: {
+                      y: {
+                        beginAtZero: true
+                      }
+                    }
+                  }
+                });
+              }
+
+              async function loadHourlyActivity() {
+                const res = await fetch(\"/api/activity/hourly\");
+                const data = await res.json();
+                
+                // Create full 24-hour array
+                const hourlyData = Array(24).fill(0);
+                data.forEach(item => {
+                  hourlyData[item.hour] = item.joins;
+                });
+                
+                const ctx = document.getElementById(\"hourlyActivityChart\").getContext(\"2d\");
+                if (hourlyActivityChartInstance) {
+                  hourlyActivityChartInstance.destroy();
+                }
+                hourlyActivityChartInstance = new Chart(ctx, {
+                  type: \"bar\",
+                  data: {
+                    labels: Array.from({length: 24}, (_, i) => `${i}:00`),
+                    datasets: [{
+                      label: \"Joins\",
+                      data: hourlyData,
+                      backgroundColor: \"#FFCE56\",
+                      borderColor: \"#FFCE56\",
+                      borderWidth: 1
+                    }]
+                  },
+                  options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: {
+                        display: false
+                      }
+                    },
+                    scales: {
+                      y: {
+                        beginAtZero: true,
+                        ticks: {
+                          stepSize: 1
+                        }
+                      }
+                    }
+                  }
+                });
+              }
+
               async function refreshAll() {
-                await Promise.all([loadSummary(), loadEvents(), loadPlayers(), loadSessions(), loadKills(), loadPlaytimeDetails(), loadPlaytimeChart(), loadKillsChart(), loadServerMetrics(), loadCombatStats(), loadWeaponChart()]);
+                await Promise.all([loadSummary(), loadEvents(), loadPlayers(), loadSessions(), loadKills(), loadPlaytimeDetails(), loadPlaytimeChart(), loadKillsChart(), loadServerMetrics(), loadCombatStats(), loadWeaponChart(), loadSessionInsights(), loadActivityTrends(), loadHourlyActivity()]);
               }
 
               refreshAll();
