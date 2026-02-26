@@ -1,6 +1,11 @@
 package playeranalyticsforge;
 
+import java.io.File;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Discord Bot Integration for PlayerAnalytics (Reflection-based to avoid hard dependency on JDA)
@@ -9,17 +14,46 @@ import java.time.Instant;
 public final class DiscordIntegration {
     private static volatile Object jda; // Holds JDA instance if available
     private static volatile boolean jdaAvailable = false;
-
+    private static volatile URLClassLoader jdaClassLoader; // Custom class loader for JDA
+    
     private DiscordIntegration() {
     }
 
     static {
-        // Check if JDA is available on the classpath
+        // Try to load JDA from classpath first, then from libs folder
         try {
             Class.forName("net.dv8tion.jda.api.JDABuilder");
             jdaAvailable = true;
         } catch (ClassNotFoundException e) {
-            jdaAvailable = false;
+            // Try to load from libs directory (working dir is set to 'run' in gradle)
+            try {
+                List<URL> jarUrls = new ArrayList<>();
+                File libsDir = new File("libs");
+                if (libsDir.exists() && libsDir.isDirectory()) {
+                    File[] jars = libsDir.listFiles((dir, name) -> name.endsWith(".jar"));
+                    if (jars != null) {
+                        for (File jar : jars) {
+                            try {
+                                jarUrls.add(jar.toURI().toURL());
+                            } catch (Exception ignored) {
+                            }
+                        }
+                    }
+                }
+                
+                if (!jarUrls.isEmpty()) {
+                    jdaClassLoader = new URLClassLoader(
+                            jarUrls.toArray(new URL[0]),
+                            ClassLoader.getSystemClassLoader() // Use system classloader as parent to avoid Forge issues
+                    );
+                    try {
+                        jdaClassLoader.loadClass("net.dv8tion.jda.api.JDABuilder");
+                        jdaAvailable = true;
+                    } catch (ClassNotFoundException ignored) {
+                    }
+                }
+            } catch (Exception ignored) {
+            }
         }
     }
 
@@ -40,14 +74,16 @@ public final class DiscordIntegration {
         }
 
         try {
-            Class<?> jdaBuilderClass = Class.forName("net.dv8tion.jda.api.JDABuilder");
+            ClassLoader loader = jdaClassLoader != null ? jdaClassLoader : Thread.currentThread().getContextClassLoader();
+            Class<?> jdaBuilderClass = loader.loadClass("net.dv8tion.jda.api.JDABuilder");
             java.lang.reflect.Method createDefaultMethod = jdaBuilderClass.getMethod("createDefault", String.class);
             Object builder = createDefaultMethod.invoke(null, token);
             java.lang.reflect.Method buildMethod = builder.getClass().getMethod("build");
             jda = buildMethod.invoke(builder);
             PlayeranalyticsForgeMod.LOGGER.info("Discord bot initialized via JDA");
-        } catch (Exception ex) {
+        } catch (Throwable ex) {  // Catch both Exception and Error (NoClassDefFoundError)
             PlayeranalyticsForgeMod.LOGGER.warn("Failed to initialize Discord bot: {}", ex.getMessage());
+            jdaAvailable = false;  // Disable Discord for this session
         }
     }
 
@@ -106,17 +142,23 @@ public final class DiscordIntegration {
         }
 
         try {
-            Class<?> embedBuilderClass = Class.forName("net.dv8tion.jda.api.EmbedBuilder");
+            ClassLoader loader = jdaClassLoader != null ? jdaClassLoader : Thread.currentThread().getContextClassLoader();
+            Class<?> embedBuilderClass = loader.loadClass("net.dv8tion.jda.api.EmbedBuilder");
             Object embed = embedBuilderClass.getConstructor().newInstance();
             
             // Set title
             java.lang.reflect.Method setTitleMethod = embedBuilderClass.getMethod("setTitle", String.class);
             setTitleMethod.invoke(embed, title);
             
-            // Set description
+            // Set description (may be appendDescription in beta versions)
             if (description != null && !description.isEmpty()) {
-                java.lang.reflect.Method setDescriptionMethod = embedBuilderClass.getMethod("setDescription", String.class);
-                setDescriptionMethod.invoke(embed, description);
+                try {
+                    java.lang.reflect.Method setDescMethod = embedBuilderClass.getMethod("setDescription", String.class);
+                    setDescMethod.invoke(embed, description);
+                } catch (NoSuchMethodException e) {
+                    java.lang.reflect.Method appendDescMethod = embedBuilderClass.getMethod("appendDescription", String.class);
+                    appendDescMethod.invoke(embed, description);
+                }
             }
             
             // Set color
