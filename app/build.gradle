@@ -78,6 +78,10 @@ dependencies {
     implementation 'org.xerial:sqlite-jdbc:3.45.3.0'
     jarJar(group: 'org.xerial', name: 'sqlite-jdbc', version: '[3.45.0,4.0.0)')
 
+    // Discord bot (JDA)
+    implementation 'net.dv8tion:JDA:5.0.0-beta.24'
+    jarJar(group: 'net.dv8tion', name: 'JDA', version: '[5.0.0,6.0.0)')
+
     testImplementation libs.junit.jupiter
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
@@ -102,6 +106,7 @@ tasks.named('processResources', ProcessResources).configure {
 task copyRuntimeLibs(type: Copy) {
     from configurations.runtimeClasspath
     include 'sqlite-jdbc-*.jar'
+    include 'JDA-*.jar'
     into 'run/libs'
 }
 

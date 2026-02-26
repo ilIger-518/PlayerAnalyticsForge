@@ -1,279 +1,222 @@
 package playeranalyticsforge;
 
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
+import net.dv8tion.jda.api.EmbedBuilder;
+import net.dv8tion.jda.api.JDA;
+import net.dv8tion.jda.api.JDABuilder;
+import net.dv8tion.jda.api.entities.Guild;
+import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.exceptions.InvalidTokenException;
+
+import java.awt.Color;
+import java.time.Instant;
 
 /**
- * Discord Webhook Integration for PlayerAnalytics
- * Sends events to Discord channels via webhooks
+ * Discord Bot Integration for PlayerAnalytics
+ * Sends events to Discord channels via a bot token
  */
 public final class DiscordIntegration {
-    private static final DateTimeFormatter TIMESTAMP_FORMAT = DateTimeFormatter.ISO_INSTANT;
+  private static volatile JDA jda;
 
-    private DiscordIntegration() {
+  private DiscordIntegration() {
+  }
+
+  public static void start() {
+    if (!AnalyticsConfig.DISCORD_ENABLED.get()) {
+      return;
     }
 
-    /**
-     * Send a message to Discord via webhook
-     */
-    public static void sendWebhook(String webhookUrl, String jsonPayload) {
-        if (webhookUrl == null || webhookUrl.isEmpty() || !webhookUrl.startsWith("https://")) {
-            return;
-        }
-
-        new Thread(() -> {
-            try {
-                URL url = new URL(webhookUrl);
-                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-                connection.setRequestMethod("POST");
-                connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                connection.setRequestProperty("User-Agent", "PlayerAnalytics/1.1");
-                connection.setDoOutput(true);
-                connection.setConnectTimeout(5000);
-                connection.setReadTimeout(5000);
-
-                byte[] payload = jsonPayload.getBytes(StandardCharsets.UTF_8);
-                connection.setFixedLengthStreamingMode(payload.length);
-
-                try (OutputStream os = connection.getOutputStream()) {
-                    os.write(payload);
-                    os.flush();
-                }
-
-                int responseCode = connection.getResponseCode();
-                if (responseCode >= 400) {
-                    PlayeranalyticsForgeMod.LOGGER.warn("Discord webhook error: HTTP {}", responseCode);
-                }
-                connection.disconnect();
-            } catch (Exception e) {
-                PlayeranalyticsForgeMod.LOGGER.error("Failed to send Discord webhook", e);
-            }
-        }).start();
+    String token = AnalyticsConfig.DISCORD_BOT_TOKEN.get();
+    if (token == null || token.isBlank()) {
+      PlayeranalyticsForgeMod.LOGGER.warn("Discord bot token not set; skipping Discord integration");
+      return;
     }
+
+    try {
+      jda = JDABuilder.createDefault(token).build();
+      PlayeranalyticsForgeMod.LOGGER.info("Discord bot initialization started");
+    } catch (InvalidTokenException ex) {
+      PlayeranalyticsForgeMod.LOGGER.error("Invalid Discord bot token; Discord integration disabled");
+    } catch (Exception ex) {
+      PlayeranalyticsForgeMod.LOGGER.error("Failed to initialize Discord bot", ex);
+    }
+  }
+
+  public static void stop() {
+    JDA current = jda;
+    jda = null;
+    if (current != null) {
+      current.shutdownNow();
+    }
+  }
+
+  private static TextChannel getTargetChannel() {
+    JDA current = jda;
+    if (current == null) {
+      return null;
+    }
+
+    String channelId = AnalyticsConfig.DISCORD_CHANNEL_ID.get();
+    if (channelId == null || channelId.isBlank()) {
+      return null;
+    }
+
+    String guildId = AnalyticsConfig.DISCORD_GUILD_ID.get();
+    if (guildId != null && !guildId.isBlank()) {
+      Guild guild = current.getGuildById(guildId);
+      if (guild != null) {
+        return guild.getTextChannelById(channelId);
+      }
+    }
+
+    return current.getTextChannelById(channelId);
+  }
+
+  private static void sendEmbed(EmbedBuilder embed) {
+    if (!AnalyticsConfig.DISCORD_ENABLED.get()) {
+      return;
+    }
+
+    TextChannel channel = getTargetChannel();
+    if (channel == null) {
+      return;
+    }
+
+    channel.sendMessageEmbeds(embed.build()).queue(
+        success -> {},
+        error -> PlayeranalyticsForgeMod.LOGGER.debug("Discord message send failed", error)
+    );
+  }
 
     /**
      * Notify Discord of a player join
      */
     public static void notifyPlayerJoin(String playerName, String uuid) {
-        if (!AnalyticsConfig.DISCORD_ENABLED.get()) {
-            return;
-        }
-
-        String webhookUrl = AnalyticsConfig.DISCORD_WEBHOOK_URL.get();
         boolean notifyJoins = AnalyticsConfig.DISCORD_NOTIFY_JOINS.get();
-
         if (!notifyJoins) {
             return;
         }
 
-        String embed = String.format("""
-                {
-                  "embeds": [{
-                    "title": "⬇️ Player Joined",
-                    "description": "**%s**",
-                    "color": 3066993,
-                    "footer": {"text": "PlayerAnalytics"},
-                    "timestamp": "%s"
-                  }]
-                }
-                """, escapeJson(playerName), TIMESTAMP_FORMAT.format(ZonedDateTime.now()));
+        EmbedBuilder embed = baseEmbed("⬇️ Player Joined")
+                .setDescription("**" + escapeMarkdown(playerName) + "**")
+                .setColor(new Color(46, 204, 113))
+                .setTimestamp(Instant.now());
 
-        sendWebhook(webhookUrl, embed);
+        sendEmbed(embed);
     }
 
     /**
      * Notify Discord of a player leave
      */
     public static void notifyPlayerLeave(String playerName, String uuid, long playtimeSeconds) {
-        if (!AnalyticsConfig.DISCORD_ENABLED.get()) {
-            return;
-        }
-
-        String webhookUrl = AnalyticsConfig.DISCORD_WEBHOOK_URL.get();
         boolean notifyLeaves = AnalyticsConfig.DISCORD_NOTIFY_LEAVES.get();
-
         if (!notifyLeaves) {
             return;
         }
 
         String duration = formatDuration(playtimeSeconds);
-        String embed = String.format("""
-                {
-                  "embeds": [{
-                    "title": "⬆️ Player Left",
-                    "description": "**%s**",
-                    "fields": [
-                      {"name": "Session Duration", "value": "%s", "inline": true}
-                    ],
-                    "color": 15158332,
-                    "footer": {"text": "PlayerAnalytics"},
-                    "timestamp": "%s"
-                  }]
-                }
-                """, escapeJson(playerName), duration, TIMESTAMP_FORMAT.format(ZonedDateTime.now()));
+        EmbedBuilder embed = baseEmbed("⬆️ Player Left")
+                .setDescription("**" + escapeMarkdown(playerName) + "**")
+                .addField("Session Duration", duration, true)
+                .setColor(new Color(231, 76, 60))
+                .setTimestamp(Instant.now());
 
-        sendWebhook(webhookUrl, embed);
+        sendEmbed(embed);
     }
 
     /**
      * Notify Discord of a kill
      */
     public static void notifyKill(String killerName, String victimName, String weaponType, boolean isPvP) {
-        if (!AnalyticsConfig.DISCORD_ENABLED.get()) {
-            return;
-        }
-
-        String webhookUrl = AnalyticsConfig.DISCORD_WEBHOOK_URL.get();
         boolean notifyKills = AnalyticsConfig.DISCORD_NOTIFY_KILLS.get();
-
         if (!notifyKills) {
             return;
         }
 
-        int color = isPvP ? 16711680 : 16776960; // Red for PvP, Yellow for PvE
+        Color color = isPvP ? new Color(231, 76, 60) : new Color(241, 196, 15);
         String type = isPvP ? "PvP Kill" : "PvE Kill";
 
-        String embed = String.format("""
-                {
-                  "embeds": [{
-                    "title": "⚔️ %s",
-                    "description": "**%s** eliminated **%s**",
-                    "fields": [
-                      {"name": "Weapon", "value": "%s", "inline": true},
-                      {"name": "Type", "value": "%s", "inline": true}
-                    ],
-                    "color": %d,
-                    "footer": {"text": "PlayerAnalytics"},
-                    "timestamp": "%s"
-                  }]
-                }
-                """, type, escapeJson(killerName), escapeJson(victimName), 
-                escapeJson(weaponType), isPvP ? "PvP" : "PvE", color,
-                TIMESTAMP_FORMAT.format(ZonedDateTime.now()));
+        EmbedBuilder embed = baseEmbed("⚔️ " + type)
+                .setDescription("**" + escapeMarkdown(killerName) + "** eliminated **" + escapeMarkdown(victimName) + "**")
+                .addField("Weapon", escapeMarkdown(weaponType), true)
+                .addField("Type", isPvP ? "PvP" : "PvE", true)
+                .setColor(color)
+                .setTimestamp(Instant.now());
 
-        sendWebhook(webhookUrl, embed);
+        sendEmbed(embed);
     }
 
     /**
      * Notify Discord of a death
      */
     public static void notifyDeath(String playerName, String deathCause) {
-        if (!AnalyticsConfig.DISCORD_ENABLED.get()) {
-            return;
-        }
-
-        String webhookUrl = AnalyticsConfig.DISCORD_WEBHOOK_URL.get();
         boolean notifyDeaths = AnalyticsConfig.DISCORD_NOTIFY_DEATHS.get();
-
         if (!notifyDeaths) {
             return;
         }
 
-        String embed = String.format("""
-                {
-                  "embeds": [{
-                    "title": "💀 Player Death",
-                    "description": "**%s** died",
-                    "fields": [
-                      {"name": "Cause", "value": "%s", "inline": true}
-                    ],
-                    "color": 9109504,
-                    "footer": {"text": "PlayerAnalytics"},
-                    "timestamp": "%s"
-                  }]
-                }
-                """, escapeJson(playerName), escapeJson(deathCause),
-                TIMESTAMP_FORMAT.format(ZonedDateTime.now()));
+        EmbedBuilder embed = baseEmbed("💀 Player Death")
+                .setDescription("**" + escapeMarkdown(playerName) + "** died")
+                .addField("Cause", escapeMarkdown(deathCause), true)
+                .setColor(new Color(155, 89, 182))
+                .setTimestamp(Instant.now());
 
-        sendWebhook(webhookUrl, embed);
+        sendEmbed(embed);
     }
 
     /**
      * Notify Discord of server milestones
      */
     public static void notifyMilestone(String title, String description) {
-        if (!AnalyticsConfig.DISCORD_ENABLED.get()) {
-            return;
-        }
-
-        String webhookUrl = AnalyticsConfig.DISCORD_WEBHOOK_URL.get();
         boolean notifyMilestones = AnalyticsConfig.DISCORD_NOTIFY_MILESTONES.get();
-
         if (!notifyMilestones) {
             return;
         }
 
-        String embed = String.format("""
-                {
-                  "embeds": [{
-                    "title": "🎉 %s",
-                    "description": "%s",
-                    "color": 7506394,
-                    "footer": {"text": "PlayerAnalytics"},
-                    "timestamp": "%s"
-                  }]
-                }
-                """, escapeJson(title), escapeJson(description),
-                TIMESTAMP_FORMAT.format(ZonedDateTime.now()));
+        EmbedBuilder embed = baseEmbed("🎉 " + escapeMarkdown(title))
+                .setDescription(escapeMarkdown(description))
+                .setColor(new Color(155, 89, 182))
+                .setTimestamp(Instant.now());
 
-        sendWebhook(webhookUrl, embed);
+        sendEmbed(embed);
     }
 
     /**
      * Notify Discord of server stats
      */
     public static void notifyServerStats(int playerCount, double tps, String serverName) {
-        if (!AnalyticsConfig.DISCORD_ENABLED.get()) {
-            return;
-        }
-
-        String webhookUrl = AnalyticsConfig.DISCORD_WEBHOOK_URL.get();
         boolean notifyStats = AnalyticsConfig.DISCORD_NOTIFY_STATS.get();
-
         if (!notifyStats) {
             return;
         }
 
         String tpsColor = tps >= 19.5 ? "🟢" : tps >= 18.0 ? "🟡" : "🔴";
 
-        String embed = String.format("""
-                {
-                  "embeds": [{
-                    "title": "📊 Server Stats - %s",
-                    "fields": [
-                      {"name": "Players Online", "value": "%d", "inline": true},
-                      {"name": "TPS", "value": "%s %.1f", "inline": true}
-                    ],
-                    "color": 3447003,
-                    "footer": {"text": "PlayerAnalytics"},
-                    "timestamp": "%s"
-                  }]
-                }
-                """, escapeJson(serverName), playerCount, tpsColor, tps,
-                TIMESTAMP_FORMAT.format(ZonedDateTime.now()));
+        EmbedBuilder embed = baseEmbed("📊 Server Stats - " + escapeMarkdown(serverName))
+                .addField("Players Online", String.valueOf(playerCount), true)
+                .addField("TPS", tpsColor + " " + String.format("%.1f", tps), true)
+                .setColor(new Color(52, 152, 219))
+                .setTimestamp(Instant.now());
 
-        sendWebhook(webhookUrl, embed);
+        sendEmbed(embed);
     }
 
-    /**
-     * Escape special characters for JSON
-     */
-    private static String escapeJson(String str) {
+    private static EmbedBuilder baseEmbed(String title) {
+        return new EmbedBuilder()
+                .setTitle(title)
+                .setFooter("PlayerAnalytics")
+                .setTimestamp(Instant.now());
+    }
+
+    private static String escapeMarkdown(String str) {
         if (str == null) {
             return "";
         }
         return str
                 .replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\b", "\\b")
-                .replace("\f", "\\f")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
+                .replace("*", "\\*")
+                .replace("_", "\\_")
+                .replace("~", "\\~")
+                .replace("`", "\\`");
     }
 
     /**

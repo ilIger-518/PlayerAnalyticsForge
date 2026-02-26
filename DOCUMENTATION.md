@@ -35,7 +35,7 @@
 - 🌍 **Multi-Server Support**: Track players across multiple connected servers
 - 💻 **Web Dashboard**: Beautiful, interactive dashboard at `http://server:8804`
 - 🔌 **REST API**: Comprehensive API for integrating analytics into external tools
-- 💬 **Discord Integration**: Send real-time notifications to Discord webhooks
+- 💬 **Discord Integration**: Send real-time notifications via a Discord bot
 - ⚙️ **Highly Configurable**: TOML-based configuration with ~25 settings
 - 🗄️ **SQLite Database**: Local persistent storage with automatic maintenance
 
@@ -90,7 +90,7 @@
 - Server registry and online status tracking
 
 #### Discord Notifications
-- Real-time Discord webhook integration
+- Real-time Discord bot integration
 - Player join/leave notifications with session duration
 - Kill notifications (PvP/PvE with weapon info)
 - Death notifications with death cause
@@ -252,32 +252,42 @@ config/playeranalytics-common.toml
 
 ## Discord Integration
 
-PlayerAnalytics can send real-time event notifications to Discord via webhooks. This allows server admins and moderators to stay informed about player activity without accessing the web dashboard.
+PlayerAnalytics can send real-time event notifications to Discord using a bot token. This allows server admins and moderators to stay informed about player activity without accessing the web dashboard.
 
-### Setting Up Discord Webhooks
+### Setting Up the Discord Bot
 
-1. **Create a Discord Webhook**:
-   - In your Discord server, go to: Settings → Integrations → Webhooks
-   - Click "Create Webhook"
-   - Give it a name (e.g., "PlayerAnalytics")
-   - Select the channel where notifications should appear
-   - Copy the webhook URL (format: `https://discordapp.com/api/webhooks/...`)
+1. **Create a Discord App and Bot**:
+  - Go to: [https://discord.com/developers/applications](https://discord.com/developers/applications)
+  - Create a new application
+  - Add a **Bot**
+  - Copy the **Bot Token**
 
-2. **Configure the Mod**:
-   - Open `config/playeranalytics-common.toml`
-   - Find or create the `[playeranalytics.discord]` section
-   - Set `enabled = true`
-   - Paste your webhook URL into `webhookUrl = "https://..."`
+2. **Invite the Bot to Your Server**:
+  - Generate an invite with `Send Messages` and `Embed Links` permissions
+  - Add the bot to your Discord server
+
+3. **Configure the Mod**:
+  - Open `config/playeranalytics-common.toml`
+  - Find or create the `[playeranalytics.discord]` section
+  - Set `enabled = true`
+  - Paste your bot token into `botToken = "..."`
+  - Set your target channel ID in `channelId = "..."`
 
 ### Discord Configuration
 
 ```toml
 [playeranalytics.discord]
-  # Enable Discord webhook integration
+  # Enable Discord bot integration
   enabled = false
   
-  # Discord webhook URL (get from: Server Settings > Integrations > Webhooks)
-  webhookUrl = ""
+  # Discord bot token (keep this secret)
+  botToken = ""
+  
+  # Target Discord channel ID for notifications
+  channelId = ""
+  
+  # Optional Discord guild ID (improves channel lookup reliability)
+  guildId = ""
   
   # Send notifications when players join
   notifyJoins = true
@@ -363,29 +373,29 @@ Discord notifications include:
   - 🟢 Green for joins and milestones
   - 🔴 Red for PvP kills
   - 🟡 Yellow for PvE kills
-  - ⚫ Dark gray for deaths
+  - 🟣 Purple for deaths and milestones
   - 🔵 Blue for server stats
 - **Timestamps** in ISO 8601 format (UTC)
 - **Escape sequence handling** for special characters in player names
 
 ### Troubleshooting Discord
 
-**Problem**: Webhook URL not working
+**Problem**: Bot token invalid
 
 **Solutions**:
-1. Verify webhook URL starts with `https://`
-2. Check webhook hasn't been deleted (recreate if needed)
-3. Ensure Discord server has permission to post in selected channel
-4. Check server logs for webhook errors
+1. Verify the bot token is correct
+2. Regenerate the token in the Discord developer portal
+3. Restart the server after updating the token
 
 **Problem**: Notifications not appearing
 
 **Solutions**:
 1. Enable the feature: `enabled = true`
-2. Paste correct webhook URL: `webhookUrl = "https://..."`
-3. Enable specific notification types: `notifyJoins = true`, etc.
-4. Check Discord bot has permission to post in the channel
-5. Look for error messages in server logs
+2. Ensure the bot is in your server and online
+3. Set correct `channelId` and (optional) `guildId`
+4. Check the bot has `Send Messages` and `Embed Links` permissions
+5. Enable specific notification types: `notifyJoins = true`, etc.
+6. Look for error messages in server logs
 
 ---
 
@@ -1169,7 +1179,7 @@ app/
 ## Version History
 
 ### v1.1 (Current)
-- Discord webhook integration (real-time notifications)
+- Discord bot integration (real-time notifications)
 - Enhanced event notifications for joins, leaves, kills, deaths
 - Session duration tracking in Discord notifications
 - Configurable Discord notification categories

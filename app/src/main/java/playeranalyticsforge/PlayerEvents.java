@@ -81,6 +81,7 @@ public final class PlayerEvents {
     @SubscribeEvent
     public static void onServerStarted(ServerStartedEvent event) {
         AnalyticsWebServer.start();
+        DiscordIntegration.start();
     }
 
     @SubscribeEvent
@@ -234,5 +235,6 @@ public final class PlayerEvents {
     public static void onServerStopping(ServerStoppingEvent event) {
         AnalyticsWebServer.stop();
         PlayerAnalyticsDb.close();
+        DiscordIntegration.stop();
     }
 }

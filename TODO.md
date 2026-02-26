@@ -112,8 +112,8 @@
 ## 🔔 Integrations & Notifications
 
 ### Discord Integration
-- [ ] Discord webhook support
-- [ ] Configurable notifications (player joins, milestones, etc.)
+- [x] Discord bot support (token + channel ID)
+- [x] Configurable notifications (player joins, milestones, etc.)
 - [ ] Daily/weekly summary reports to Discord
 - [ ] Player achievement notifications
 
@@ -150,7 +150,7 @@
 - [ ] Implement access token authentication in web server
 - [ ] Implement IP allowlist enforcement in web server
 - [ ] Database connection settings
-- [ ] Webhook URLs and settings
+- [x] Discord bot token and channel settings
 - [ ] Privacy settings (anonymize IPs, etc.)
 
 ### Customization

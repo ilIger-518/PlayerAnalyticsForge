@@ -46,15 +46,17 @@ public final class AnalyticsConfig {
     public static final ForgeConfigSpec.ConfigValue<String> CENTRAL_SERVER_URL;
     public static final ForgeConfigSpec.IntValue NETWORK_SYNC_INTERVAL_SECONDS;
     
-    // Discord Configuration
-    public static final ForgeConfigSpec.BooleanValue DISCORD_ENABLED;
-    public static final ForgeConfigSpec.ConfigValue<String> DISCORD_WEBHOOK_URL;
-    public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_JOINS;
-    public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_LEAVES;
-    public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_KILLS;
-    public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_DEATHS;
-    public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_MILESTONES;
-    public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_STATS;
+        // Discord Configuration
+        public static final ForgeConfigSpec.BooleanValue DISCORD_ENABLED;
+        public static final ForgeConfigSpec.ConfigValue<String> DISCORD_BOT_TOKEN;
+        public static final ForgeConfigSpec.ConfigValue<String> DISCORD_CHANNEL_ID;
+        public static final ForgeConfigSpec.ConfigValue<String> DISCORD_GUILD_ID;
+        public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_JOINS;
+        public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_LEAVES;
+        public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_KILLS;
+        public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_DEATHS;
+        public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_MILESTONES;
+        public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_STATS;
     
     static {
         BUILDER.comment("PlayerAnalytics Configuration")
@@ -189,16 +191,24 @@ public final class AnalyticsConfig {
         BUILDER.pop();
         
         // Discord Configuration
-        BUILDER.comment("Discord Integration - Enable webhooks to send events to Discord")
+        BUILDER.comment("Discord Integration - Send events using a Discord bot")
                 .push("discord");
-        
+
         DISCORD_ENABLED = BUILDER
-                .comment("Enable Discord webhook integration")
+                .comment("Enable Discord bot integration")
                 .define("enabled", false);
-        
-        DISCORD_WEBHOOK_URL = BUILDER
-                .comment("Discord webhook URL (get from: Server Settings > Integrations > Webhooks > Create Webhook > Copy Webhook URL)")
-                .define("webhookUrl", "");
+
+        DISCORD_BOT_TOKEN = BUILDER
+                .comment("Discord bot token (keep this secret; consider using an environment variable in production)")
+                .define("botToken", "");
+
+        DISCORD_CHANNEL_ID = BUILDER
+                .comment("Target Discord channel ID for notifications")
+                .define("channelId", "");
+
+        DISCORD_GUILD_ID = BUILDER
+                .comment("Optional Discord server (guild) ID; improves channel lookup reliability")
+                .define("guildId", "");
         
         DISCORD_NOTIFY_JOINS = BUILDER
                 .comment("Send notifications when players join")
