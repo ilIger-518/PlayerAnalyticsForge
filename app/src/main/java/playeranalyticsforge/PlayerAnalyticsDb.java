@@ -1560,4 +1560,53 @@ public final class PlayerAnalyticsDb {
             }
         }
     }
+
+    public static String getOnlinePlayersJson() {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                StringBuilder json = new StringBuilder("[");
+                boolean first = true;
+                
+                // Get a snapshot of active sessions to avoid concurrent modification
+                java.util.Map<UUID, Instant> sessionSnapshot = new java.util.HashMap<>(activeSessions);
+                
+                for (java.util.Map.Entry<UUID, Instant> entry : sessionSnapshot.entrySet()) {
+                    UUID uuid = entry.getKey();
+                    Instant joinTime = entry.getValue();
+                    
+                    // Get player name from database
+                    String sql = "SELECT player_name FROM player_stats WHERE player_uuid = ? LIMIT 1";
+                    try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                        stmt.setString(1, uuid.toString());
+                        try (ResultSet rs = stmt.executeQuery()) {
+                            if (rs.next()) {
+                                String playerName = rs.getString("player_name");
+                                long sessionDuration = Duration.between(joinTime, Instant.now()).getSeconds();
+                                
+                                if (!first) json.append(",");
+                                json.append("{")
+                                    .append("\"player_uuid\":\"").append(uuid.toString()).append("\"")
+                                    .append(",\"player_name\":").append(toJsonString(playerName))
+                                    .append(",\"join_time\":\"").append(joinTime.toString()).append("\"")
+                                    .append(",\"session_duration_seconds\":").append(sessionDuration)
+                                    .append("}");
+                                first = false;
+                            }
+                        }
+                    }
+                }
+                
+                json.append("]");
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get online players", ex);
+                return "[]";
+            }
+        }
+    }
+
+    public static int getOnlinePlayerCount() {
+        return activeSessions.size();
+    }
 }

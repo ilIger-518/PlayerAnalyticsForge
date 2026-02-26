@@ -47,7 +47,7 @@
   - [ ] Geographic distribution map
 - [x] Player profile pages (individual player stats)
 - [ ] Server overview dashboard
-- [ ] Real-time player list (currently online)
+- [x] Real-time player list (currently online)
 - [x] Leaderboards (most active, highest K/D, longest playtime)
 - [ ] Sorting and filtering for tables
 - [ ] Search functionality

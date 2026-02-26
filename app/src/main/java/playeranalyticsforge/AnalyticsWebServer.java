@@ -52,6 +52,7 @@ public final class AnalyticsWebServer {
             server.createContext("/api/activity/trends", exchange -> handleJson(exchange, PlayerAnalyticsDb.getActivityTrendsJson(readLimit(exchange))));
             server.createContext("/api/activity/hourly", exchange -> handleJson(exchange, PlayerAnalyticsDb.getHourlyActivityJson()));
             server.createContext("/api/sessions/insights", exchange -> handleJson(exchange, PlayerAnalyticsDb.getSessionInsightsJson()));
+            server.createContext("/api/players/online", exchange -> handleJson(exchange, PlayerAnalyticsDb.getOnlinePlayersJson()));
             server.createContext("/api/leaderboard/", new LeaderboardHandler());
             server.createContext("/api/player/", new PlayerHandler());
             server.createContext("/player/", new PlayerPageHandler());
@@ -238,6 +239,12 @@ public final class AnalyticsWebServer {
                 <p id=\"summary-playtime\" style=\"margin-top: 8px;\">Total playtime: 0h 0m</p>
                 <p id=\"summary-sessions\">Sessions: 0 (avg 0s)</p>
                 <p id=\"summary-last\">Last event: -</p>
+              </section>
+              <section class=\"card card-half\">
+                <div class=\"pill\">Online Players (<span id=\"online-count\">0</span>)</div>
+                <div id=\"online-players-list\" style=\"font-size: 14px; margin-top: 12px; max-height: 220px; overflow-y: auto;\">
+                  <p style=\"color: var(--muted);\">No players online</p>
+                </div>
               </section>
               <section class=\"card card-half\">
                 <div class=\"pill\">Playtime Distribution</div>
@@ -890,8 +897,51 @@ public final class AnalyticsWebServer {
                 }
               }
 
+              async function loadOnlinePlayers() {
+                const res = await fetch("/api/players/online");
+                const data = await res.json();
+                const container = document.getElementById("online-players-list");
+                const countSpan = document.getElementById("online-count");
+                
+                countSpan.textContent = data.length;
+                
+                if (data.length === 0) {
+                  container.innerHTML = '<p style="color: var(--muted);">No players online</p>';
+                  return;
+                }
+                
+                container.innerHTML = "";
+                data.forEach(player => {
+                  const durationMinutes = Math.floor(player.session_duration_seconds / 60);
+                  const durationSeconds = player.session_duration_seconds % 60;
+                  const durationDisplay = durationMinutes > 0 
+                    ? `${durationMinutes}m ${durationSeconds}s`
+                    : `${durationSeconds}s`;
+                  
+                  const playerDiv = document.createElement("div");
+                  playerDiv.style.cssText = "padding: 8px 0; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center;";
+                  playerDiv.innerHTML = `
+                    <div>
+                      <a href="/player/${player.player_uuid}" style="color: var(--accent); text-decoration: none; font-weight: 600;">
+                        ${player.player_name}
+                      </a>
+                    </div>
+                    <div style="color: var(--muted); font-size: 12px;">
+                      ${durationDisplay}
+                    </div>
+                  `;
+                  container.appendChild(playerDiv);
+                });
+                
+                // Remove border from last item
+                const lastChild = container.lastElementChild;
+                if (lastChild) {
+                  lastChild.style.borderBottom = "none";
+                }
+              }
+
               async function refreshAll() {
-                await Promise.all([loadSummary(), loadEvents(), loadPlayers(), loadSessions(), loadKills(), loadPlaytimeDetails(), loadPlaytimeChart(), loadKillsChart(), loadServerMetrics(), loadCombatStats(), loadWeaponChart(), loadSessionInsights(), loadActivityTrends(), loadHourlyActivity(), loadLeaderboards()]);
+                await Promise.all([loadSummary(), loadEvents(), loadPlayers(), loadSessions(), loadKills(), loadPlaytimeDetails(), loadPlaytimeChart(), loadKillsChart(), loadServerMetrics(), loadCombatStats(), loadWeaponChart(), loadSessionInsights(), loadActivityTrends(), loadHourlyActivity(), loadLeaderboards(), loadOnlinePlayers()]);
               }
 
               refreshAll();
