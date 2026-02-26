@@ -2066,4 +2066,147 @@ public final class PlayerAnalyticsDb {
             }
         }
     }
+
+    @SuppressWarnings("null")
+    public static String getChurnAnalysisJson() {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                Instant now = Instant.now();
+                long days7Ago = now.minus(Duration.ofDays(7)).getEpochSecond();
+                long days30Ago = now.minus(Duration.ofDays(30)).getEpochSecond();
+                long days90Ago = now.minus(Duration.ofDays(90)).getEpochSecond();
+                
+                // Count churned players (no activity in various periods)
+                String countSql = "SELECT " +
+                    "COUNT(CASE WHEN last_seen < ? THEN 1 END) AS churned_7d, " +
+                    "COUNT(CASE WHEN last_seen < ? THEN 1 END) AS churned_30d, " +
+                    "COUNT(CASE WHEN last_seen < ? THEN 1 END) AS churned_90d, " +
+                    "COUNT(*) AS total_unique_players " +
+                    "FROM player_stats";
+                
+                StringBuilder json = new StringBuilder("{");
+                try (PreparedStatement stmt = conn.prepareStatement(countSql)) {
+                    stmt.setString(1, java.time.Instant.ofEpochSecond(days7Ago).toString());
+                    stmt.setString(2, java.time.Instant.ofEpochSecond(days30Ago).toString());
+                    stmt.setString(3, java.time.Instant.ofEpochSecond(days90Ago).toString());
+                    
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            long churned7d = rs.getLong("churned_7d");
+                            long churned30d = rs.getLong("churned_30d");
+                            long churned90d = rs.getLong("churned_90d");
+                            long totalPlayers = rs.getLong("total_unique_players");
+                            
+                            json.append("\"churnedLast7Days\":").append(churned7d).append(",");
+                            json.append("\"churnedLast30Days\":").append(churned30d).append(",");
+                            json.append("\"churnedLast90Days\":").append(churned90d).append(",");
+                            json.append("\"totalUniquePlayers\":").append(totalPlayers).append(",");
+                            
+                            // Calculate churn rates
+                            double churnRate7d = totalPlayers > 0 ? (churned7d * 100.0) / totalPlayers : 0;
+                            double churnRate30d = totalPlayers > 0 ? (churned30d * 100.0) / totalPlayers : 0;
+                            double churnRate90d = totalPlayers > 0 ? (churned90d * 100.0) / totalPlayers : 0;
+                            
+                            json.append("\"churnRate7Days\":").append(String.format("%.2f", churnRate7d)).append(",");
+                            json.append("\"churnRate30Days\":").append(String.format("%.2f", churnRate30d)).append(",");
+                            json.append("\"churnRate90Days\":").append(String.format("%.2f", churnRate90d));
+                        }
+                    }
+                }
+                json.append("}");
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get churn analysis", ex);
+                return "{\"error\":\"Failed to fetch churn data\"}";
+            }
+        }
+    }
+
+    @SuppressWarnings("null")
+    public static String getChurnedPlayersJson(int daysInactive) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                Instant threshold = Instant.now().minus(Duration.ofDays(daysInactive));
+                
+                String sql = "SELECT player_uuid, player_name, last_seen, total_playtime_seconds, kills, deaths, " +
+                    "CAST((julianday('now') - julianday(last_seen)) AS INTEGER) AS days_since_seen " +
+                    "FROM player_stats " +
+                    "WHERE last_seen IS NOT NULL AND last_seen < ? " +
+                    "ORDER BY last_seen DESC " +
+                    "LIMIT 100";
+                
+                StringBuilder json = new StringBuilder("[");
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, threshold.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) json.append(",");
+                            json.append("{")
+                                .append("\"playerUuid\":").append(toJsonString(rs.getString("player_uuid"))).append(",")
+                                .append("\"playerName\":").append(toJsonString(rs.getString("player_name"))).append(",")
+                                .append("\"lastSeen\":").append(toJsonString(rs.getString("last_seen"))).append(",")
+                                .append("\"daysSinceSeen\":").append(rs.getInt("days_since_seen")).append(",")
+                                .append("\"totalPlaytimeSeconds\":").append(rs.getLong("total_playtime_seconds")).append(",")
+                                .append("\"kills\":").append(rs.getLong("kills")).append(",")
+                                .append("\"deaths\":").append(rs.getLong("deaths"))
+                                .append("}");
+                            first = false;
+                        }
+                    }
+                }
+                json.append("]");
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get churned players list", ex);
+                return "[]";
+            }
+        }
+    }
+
+    @SuppressWarnings("null")
+    public static String getAtRiskPlayersJson() {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                // Players who were active 14-30 days ago but haven't been seen in 7 days
+                Instant sevenDaysAgo = Instant.now().minus(Duration.ofDays(7));
+                Instant thirtyDaysAgo = Instant.now().minus(Duration.ofDays(30));
+                
+                String sql = "SELECT player_uuid, player_name, last_seen, total_playtime_seconds, kills, deaths " +
+                    "FROM player_stats " +
+                    "WHERE last_seen >= ? AND last_seen < ? " +
+                    "ORDER BY last_seen DESC " +
+                    "LIMIT 100";
+                
+                StringBuilder json = new StringBuilder("[");
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, thirtyDaysAgo.toString());
+                    stmt.setString(2, sevenDaysAgo.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) json.append(",");
+                            json.append("{")
+                                .append("\"playerUuid\":").append(toJsonString(rs.getString("player_uuid"))).append(",")
+                                .append("\"playerName\":").append(toJsonString(rs.getString("player_name"))).append(",")
+                                .append("\"lastSeen\":").append(toJsonString(rs.getString("last_seen"))).append(",")
+                                .append("\"totalPlaytimeSeconds\":").append(rs.getLong("total_playtime_seconds")).append(",")
+                                .append("\"kills\":").append(rs.getLong("kills")).append(",")
+                                .append("\"deaths\":").append(rs.getLong("deaths"))
+                                .append("}");
+                            first = false;
+                        }
+                    }
+                }
+                json.append("]");
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get at-risk players list", ex);
+                return "[]";
+            }
+        }
+    }
 }

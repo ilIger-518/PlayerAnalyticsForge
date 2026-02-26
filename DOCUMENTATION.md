@@ -68,6 +68,11 @@
 - Hourly activity distribution (peak hours detection)
 - Last seen timestamp tracking
 - Activity calendar heatmap
+- **Player Churn Analysis**:
+  - Identify players who haven't played in 7, 30, or 90 days
+  - Calculate churn rates and percentages
+  - Identify at-risk players (formerly active, now inactive)
+  - Track churned player metrics (playtime, kills, last seen)
 
 #### Server Performance Monitoring
 - TPS (Ticks Per Second) tracking
@@ -523,6 +528,32 @@ Shows top 10 players by specified metric.
 
 ---
 
+### `/analytics churn`
+Shows player churn analysis (churned and at-risk players).
+
+**Usage**: `/analytics churn`
+
+**Output**:
+- Total unique players
+- Number of players churned in last 7 days
+- Number of players churned in last 30 days
+- Churn rate percentages for 7-day and 30-day windows
+
+**Example**:
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📉 Churn Analysis
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Total Players: 50
+Churned (7 days): 5 (10.0%)
+Churned (30 days): 12 (24.0%)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Permissions**: Everyone (default)
+
+---
+
 ## Web Dashboard
 
 ### Access
@@ -703,6 +734,68 @@ Leaderboard for specified metric.
     "player_uuid": "550e8400-e29b-41d4-a716-446655440000",
     "player_name": "Player1",
     "value": 42
+  }
+]
+```
+
+---
+
+#### Churn Analysis
+
+**`GET /api/churn/analysis`**  
+Overall player churn metrics and statistics.
+
+**Response**:
+```json
+{
+  "churnedLast7Days": 5,
+  "churnedLast30Days": 12,
+  "churnedLast90Days": 25,
+  "totalUniquePlayers": 50,
+  "churnRate7Days": 10.0,
+  "churnRate30Days": 24.0,
+  "churnRate90Days": 50.0
+}
+```
+
+---
+
+**`GET /api/churn/players/{days}`**  
+List of players who have been inactive for specified days.
+
+**Path Parameters**:
+- `days` (optional): Number of days of inactivity (default: 7, max: 365)
+
+**Response**:
+```json
+[
+  {
+    "playerUuid": "550e8400-e29b-41d4-a716-446655440000",
+    "playerName": "Player1",
+    "lastSeen": "2026-02-19T10:00:00Z",
+    "daysSinceSeen": 7,
+    "totalPlaytimeSeconds": 86400,
+    "kills": 15,
+    "deaths": 5
+  }
+]
+```
+
+---
+
+**`GET /api/churn/at-risk`**  
+List of "at-risk" players (active 14-30 days ago, but inactive past 7 days).
+
+**Response**:
+```json
+[
+  {
+    "playerUuid": "550e8400-e29b-41d4-a716-446655440000",
+    "playerName": "Player1",
+    "lastSeen": "2026-02-20T10:00:00Z",
+    "totalPlaytimeSeconds": 86400,
+    "kills": 20,
+    "deaths": 8
   }
 ]
 ```

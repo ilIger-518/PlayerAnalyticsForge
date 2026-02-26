@@ -25,7 +25,7 @@
 - [x] Activity calendar heatmap (days active per month)
 - [x] Hourly activity graph (peak hours)
 - [x] Daily/weekly/monthly activity trends
-- [ ] Player churn analysis
+- [x] Player churn analysis
 
 ### Combat Statistics
 - [x] Separate PvP and PvE kills

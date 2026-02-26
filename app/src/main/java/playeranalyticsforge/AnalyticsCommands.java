@@ -52,6 +52,9 @@ public final class AnalyticsCommands {
                         )
                     )
                 )
+                .then(Commands.literal("churn")
+                    .executes(context -> churnAnalysisCommand(context.getSource()))
+                )
         );
     }
 
@@ -468,6 +471,66 @@ public final class AnalyticsCommands {
         } catch (SQLException ex) {
             PlayeranalyticsForgeMod.LOGGER.error("Failed to compare players", ex);
             source.sendFailure(Component.literal("Failed to compare players. Check server logs."));
+            return 0;
+        }
+    }
+
+    @SuppressWarnings("null")
+    private static int churnAnalysisCommand(CommandSourceStack source) {
+        try {
+            Path configDir = FMLPaths.CONFIGDIR.get();
+            Path dbPath = configDir.resolve("playeranalytics.sqlite");
+            String jdbcUrl = "jdbc:sqlite:" + dbPath.toAbsolutePath();
+            
+            String sql = "SELECT " +
+                "COUNT(CASE WHEN last_seen < datetime('now', '-7 days') THEN 1 END) AS churned_7d, " +
+                "COUNT(CASE WHEN last_seen < datetime('now', '-30 days') THEN 1 END) AS churned_30d, " +
+                "COUNT(*) AS total_players " +
+                "FROM player_stats";
+            
+            try (Connection conn = DriverManager.getConnection(jdbcUrl);
+                 PreparedStatement stmt = conn.prepareStatement(sql)) {
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        source.sendSuccess(() -> Component.literal("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                            .withStyle(ChatFormatting.DARK_PURPLE, ChatFormatting.BOLD), false);
+                        source.sendSuccess(() -> Component.literal("📉 Churn Analysis")
+                            .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), false);
+                        source.sendSuccess(() -> Component.literal("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                            .withStyle(ChatFormatting.DARK_PURPLE, ChatFormatting.BOLD), false);
+                        
+                        long churned7d = rs.getLong("churned_7d");
+                        long churned30d = rs.getLong("churned_30d");
+                        long totalPlayers = rs.getLong("total_players");
+                        
+                        double churnRate7d = totalPlayers > 0 ? (churned7d * 100.0) / totalPlayers : 0;
+                        double churnRate30d = totalPlayers > 0 ? (churned30d * 100.0) / totalPlayers : 0;
+                        
+                        source.sendSuccess(() -> Component.literal("Total Players: ")
+                            .withStyle(ChatFormatting.AQUA)
+                            .append(Component.literal(String.valueOf(totalPlayers)).withStyle(ChatFormatting.WHITE)), false);
+                        
+                        source.sendSuccess(() -> Component.literal("Churned (7 days): ")
+                            .withStyle(ChatFormatting.AQUA)
+                            .append(Component.literal(churned7d + " ").withStyle(ChatFormatting.LIGHT_PURPLE))
+                            .append(Component.literal(String.format("(%.1f%%)", churnRate7d)).withStyle(ChatFormatting.GRAY)), false);
+                        
+                        source.sendSuccess(() -> Component.literal("Churned (30 days): ")
+                            .withStyle(ChatFormatting.AQUA)
+                            .append(Component.literal(churned30d + " ").withStyle(ChatFormatting.RED))
+                            .append(Component.literal(String.format("(%.1f%%)", churnRate30d)).withStyle(ChatFormatting.GRAY)), false);
+                        
+                        source.sendSuccess(() -> Component.literal("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                            .withStyle(ChatFormatting.DARK_PURPLE, ChatFormatting.BOLD), false);
+                        return 1;
+                    }
+                }
+            }
+            source.sendFailure(Component.literal("No churn data available."));
+            return 0;
+        } catch (SQLException ex) {
+            PlayeranalyticsForgeMod.LOGGER.error("Failed to fetch churn analysis", ex);
+            source.sendFailure(Component.literal("Failed to fetch churn analysis. Check server logs."));
             return 0;
         }
     }

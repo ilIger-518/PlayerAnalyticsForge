@@ -69,6 +69,9 @@ public final class AnalyticsWebServer {
             server.createContext("/api/player/servers/", new PlayerServerHistoryHandler());
             server.createContext("/api/leaderboard/", new LeaderboardHandler());
             server.createContext("/api/player/", new PlayerHandler());
+            server.createContext("/api/churn/analysis", exchange -> handleJson(exchange, PlayerAnalyticsDb.getChurnAnalysisJson()));
+            server.createContext("/api/churn/players/", new ChurnedPlayersHandler());
+            server.createContext("/api/churn/at-risk", exchange -> handleJson(exchange, PlayerAnalyticsDb.getAtRiskPlayersJson()));
             server.createContext("/player/", new PlayerPageHandler());
             server.setExecutor(null);
             server.start();
@@ -1668,6 +1671,26 @@ public final class AnalyticsWebServer {
             }
             
             String json = PlayerAnalyticsDb.getLeaderboardJson(type, limit);
+            handleJson(exchange, json);
+        }
+    }
+
+    static class ChurnedPlayersHandler implements com.sun.net.httpserver.HttpHandler {
+        @Override
+        public void handle(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+            String path = exchange.getRequestURI().getPath();
+            String daysStr = path.replace("/api/churn/players/", "");
+            
+            int days = 7; // Default: 7 days
+            if (!daysStr.isEmpty()) {
+                try {
+                    days = Math.max(1, Math.min(Integer.parseInt(daysStr), 365));
+                } catch (NumberFormatException e) {
+                    // Use default
+                }
+            }
+            
+            String json = PlayerAnalyticsDb.getChurnedPlayersJson(days);
             handleJson(exchange, json);
         }
     }
