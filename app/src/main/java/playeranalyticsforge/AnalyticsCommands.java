@@ -25,6 +25,7 @@ public final class AnalyticsCommands {
     private AnalyticsCommands() {
     }
 
+    @SuppressWarnings("null")
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(
             Commands.literal("analytics")
@@ -35,15 +36,18 @@ public final class AnalyticsCommands {
         );
     }
 
+    @SuppressWarnings("null")
     private static int showOwnStats(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
         return displayPlayerStats(context.getSource(), player);
     }
 
+    @SuppressWarnings("null")
     private static int showPlayerStats(CommandContext<CommandSourceStack> context, ServerPlayer targetPlayer) {
         return displayPlayerStats(context.getSource(), targetPlayer);
     }
 
+    @SuppressWarnings("null")
     private static int displayPlayerStats(CommandSourceStack source, ServerPlayer player) {
         try {
             Path configDir = FMLPaths.CONFIGDIR.get();
