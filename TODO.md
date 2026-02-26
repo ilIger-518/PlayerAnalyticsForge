@@ -76,10 +76,10 @@
 - [ ] Average ping/latency per player
 
 ### World Statistics
-- [ ] Per-world player counts
-- [ ] Per-dimension statistics (Overworld, Nether, End)
-- [ ] World-specific playtime
-- [ ] Per-world kill statistics
+- [x] Per-world player counts
+- [x] Per-dimension statistics (Overworld, Nether, End)
+- [x] World-specific playtime
+- [x] Per-world kill statistics
 
 ## 🌍 Network & Connection Tracking
 

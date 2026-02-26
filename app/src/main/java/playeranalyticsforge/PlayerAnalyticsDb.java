@@ -768,6 +768,68 @@ public final class PlayerAnalyticsDb {
                 statement.executeUpdate(
                     "CREATE INDEX IF NOT EXISTS idx_daily_activity_date ON daily_activity(activity_date)"
                 );
+                
+                // World/Dimension tracking tables
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS world_playtime (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "player_uuid TEXT NOT NULL, " +
+                        "world_name TEXT NOT NULL, " +
+                        "playtime_seconds LONG NOT NULL DEFAULT 0, " +
+                        "last_updated TEXT NOT NULL, " +
+                        "UNIQUE(player_uuid, world_name)" +
+                    ")"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS world_kills (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "killer_uuid TEXT NOT NULL, " +
+                        "victim_name TEXT NOT NULL, " +
+                        "victim_type TEXT NOT NULL, " +
+                        "world_name TEXT NOT NULL, " +
+                        "weapon_used TEXT, " +
+                        "kill_time_utc TEXT NOT NULL, " +
+                        "is_pvp BOOLEAN NOT NULL DEFAULT 0" +
+                    ")"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS world_sessions (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "player_uuid TEXT NOT NULL, " +
+                        "player_name TEXT NOT NULL, " +
+                        "world_name TEXT NOT NULL, " +
+                        "joined_time TEXT NOT NULL, " +
+                        "left_time TEXT, " +
+                        "duration_seconds LONG, " +
+                        "is_current BOOLEAN NOT NULL DEFAULT 1" +
+                    ")"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_world_playtime_world ON world_playtime(world_name)"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_world_playtime_player ON world_playtime(player_uuid)"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_world_kills_world ON world_kills(world_name)"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_world_kills_killer ON world_kills(killer_uuid)"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_world_sessions_world ON world_sessions(world_name)"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_world_sessions_player ON world_sessions(player_uuid)"
+                );
             }
 
             return connection;
@@ -1608,5 +1670,136 @@ public final class PlayerAnalyticsDb {
 
     public static int getOnlinePlayerCount() {
         return activeSessions.size();
+    }
+
+    @SuppressWarnings("null")
+    public static void recordWorldPlaytime(ServerPlayer player, String worldName, long playtimeSeconds) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "INSERT INTO world_playtime (player_uuid, world_name, playtime_seconds, last_updated) " +
+                    "VALUES (?, ?, ?, ?) " +
+                    "ON CONFLICT(player_uuid, world_name) DO UPDATE SET " +
+                    "playtime_seconds = playtime_seconds + ?, last_updated = ?";
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, player.getUUID().toString());
+                    stmt.setString(2, worldName);
+                    stmt.setLong(3, playtimeSeconds);
+                    stmt.setString(4, Instant.now().toString());
+                    stmt.setLong(5, playtimeSeconds);
+                    stmt.setString(6, Instant.now().toString());
+                    stmt.executeUpdate();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to record world playtime for player: {}", player.getUUID(), ex);
+            }
+        }
+    }
+
+    @SuppressWarnings("null")
+    public static void recordWorldKill(ServerPlayer killer, String victimName, String victimType, String worldName, String weaponUsed, boolean isPvP) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "INSERT INTO world_kills (killer_uuid, victim_name, victim_type, world_name, weapon_used, kill_time_utc, is_pvp) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)";
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, killer.getUUID().toString());
+                    stmt.setString(2, victimName);
+                    stmt.setString(3, victimType);
+                    stmt.setString(4, worldName);
+                    stmt.setString(5, weaponUsed);
+                    stmt.setString(6, Instant.now().toString());
+                    stmt.setBoolean(7, isPvP);
+                    stmt.executeUpdate();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to record world kill for player: {}", killer.getUUID(), ex);
+            }
+        }
+    }
+
+    @SuppressWarnings("null")
+    public static String getWorldDistributionJson() {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT world_name, COUNT(DISTINCT player_uuid) as player_count, " +
+                    "SUM(playtime_seconds) as total_playtime, SUM(CASE WHEN is_current=1 THEN 1 ELSE 0 END) as current_players " +
+                    "FROM world_playtime " +
+                    "GROUP BY world_name " +
+                    "ORDER BY player_count DESC";
+                
+                StringBuilder json = new StringBuilder("[");
+                try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
+                    boolean first = true;
+                    while (rs.next()) {
+                        if (!first) json.append(",");
+                        json.append("{\"worldName\":").append(toJsonString(rs.getString("world_name")))
+                            .append(",\"playerCount\":").append(rs.getInt("player_count"))
+                            .append(",\"totalPlaytime\":").append(rs.getLong("total_playtime"))
+                            .append(",\"currentPlayers\":0")
+                            .append("}");
+                        first = false;
+                    }
+                }
+                json.append("]");
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get world distribution", ex);
+                return "[]";
+            }
+        }
+    }
+
+    @SuppressWarnings("null")
+    public static String getWorldStatsJson(String worldName) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                
+                // Get world playtime stats
+                String playtimeSql = "SELECT COUNT(DISTINCT player_uuid) as unique_players, " +
+                    "SUM(playtime_seconds) as total_playtime, " +
+                    "AVG(playtime_seconds) as avg_playtime " +
+                    "FROM world_playtime WHERE world_name = ?";
+                
+                // Get world kill stats
+                String killsSql = "SELECT COUNT(*) as total_kills, " +
+                    "SUM(CASE WHEN is_pvp=1 THEN 1 ELSE 0 END) as pvp_kills, " +
+                    "SUM(CASE WHEN is_pvp=0 THEN 1 ELSE 0 END) as pve_kills " +
+                    "FROM world_kills WHERE world_name = ?";
+                
+                StringBuilder json = new StringBuilder("{\"worldName\":").append(toJsonString(worldName));
+                
+                try (PreparedStatement stmt = conn.prepareStatement(playtimeSql)) {
+                    stmt.setString(1, worldName);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            json.append(",\"uniquePlayers\":").append(rs.getInt("unique_players"))
+                                .append(",\"totalPlaytime\":").append(rs.getLong("total_playtime"))
+                                .append(",\"avgPlaytime\":").append(rs.getLong("avg_playtime"));
+                        }
+                    }
+                }
+                
+                try (PreparedStatement stmt = conn.prepareStatement(killsSql)) {
+                    stmt.setString(1, worldName);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            json.append(",\"totalKills\":").append(rs.getInt("total_kills"))
+                                .append(",\"pvpKills\":").append(rs.getInt("pvp_kills"))
+                                .append(",\"pveKills\":").append(rs.getInt("pve_kills"));
+                        }
+                    }
+                }
+                
+                json.append("}");
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get world stats for: {}", worldName, ex);
+                return "{\"error\":\"Failed to retrieve world stats\"}";
+            }
+        }
     }
 }

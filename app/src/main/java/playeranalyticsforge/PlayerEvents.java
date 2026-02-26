@@ -10,10 +10,14 @@ import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
 @Mod.EventBusSubscriber(modid = PlayeranalyticsForgeMod.MOD_ID)
 public final class PlayerEvents {
     private static long tickCounter = 0;
     private static long activityUpdateCounter = 0;
+    private static final ConcurrentHashMap<UUID, String> playerWorlds = new ConcurrentHashMap<>();
 
     private PlayerEvents() {
     }
@@ -21,19 +25,26 @@ public final class PlayerEvents {
     @SubscribeEvent
     public static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
+            // Track world
+            String worldName = player.serverLevel().dimension().location().toString();
+            playerWorlds.put(player.getUUID(), worldName);
+            
             if (AnalyticsConfig.TRACK_SESSIONS.get()) {
                 PlayerAnalyticsDb.recordEvent("join", player);
             }
             if (AnalyticsConfig.TRACK_PLAYTIME.get()) {
                 PlayerAnalyticsDb.startSession(player);
             }
-            PlayeranalyticsForgeMod.LOGGER.info("Player joined: {} ({})", player.getGameProfile().getName(), player.getUUID());
+            PlayeranalyticsForgeMod.LOGGER.info("Player joined: {} ({}) in world: {}", player.getGameProfile().getName(), player.getUUID(), worldName);
         }
     }
 
     @SubscribeEvent
     public static void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
+            // Remove world tracking
+            playerWorlds.remove(player.getUUID());
+            
             if (AnalyticsConfig.TRACK_SESSIONS.get()) {
                 PlayerAnalyticsDb.recordEvent("leave", player);
             }
@@ -85,9 +96,13 @@ public final class PlayerEvents {
             // Get weapon used
             String weaponUsed = getWeaponName(killer, event.getSource());
             
+            // Get world name
+            String worldName = killer.serverLevel().dimension().location().toString();
+            
             PlayerAnalyticsDb.recordKill(killer);
             PlayerAnalyticsDb.recordKillDetail(killer, victimType, victimName);
             PlayerAnalyticsDb.recordWeaponUsage(killer.getUUID().toString(), killer.getGameProfile().getName(), weaponUsed);
+            PlayerAnalyticsDb.recordWorldKill(killer, victimName != null ? victimName : victimType, victimType, worldName, weaponUsed, isPvP);
             PlayerAnalyticsDb.recordKillStreak(killer.getUUID().toString());
             
             // Record PvP or PvE kill

@@ -62,6 +62,8 @@ public final class AnalyticsWebServer {
             server.createContext("/api/activity/hourly", exchange -> handleJson(exchange, PlayerAnalyticsDb.getHourlyActivityJson()));
             server.createContext("/api/sessions/insights", exchange -> handleJson(exchange, PlayerAnalyticsDb.getSessionInsightsJson()));
             server.createContext("/api/players/online", exchange -> handleJson(exchange, PlayerAnalyticsDb.getOnlinePlayersJson()));
+            server.createContext("/api/worlds", exchange -> handleJson(exchange, PlayerAnalyticsDb.getWorldDistributionJson()));
+            server.createContext("/api/world/", new WorldHandler());
             server.createContext("/api/leaderboard/", new LeaderboardHandler());
             server.createContext("/api/player/", new PlayerHandler());
             server.createContext("/player/", new PlayerPageHandler());
@@ -1545,6 +1547,29 @@ public final class AnalyticsWebServer {
             }
             
             String json = PlayerAnalyticsDb.getKillMatrixJson(killerUuid);
+            handleJson(exchange, json);
+        }
+    }
+
+    static class WorldHandler implements com.sun.net.httpserver.HttpHandler {
+        @Override
+        public void handle(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+            String path = exchange.getRequestURI().getPath();
+            String worldName = path.replace("/api/world/", "");
+            
+            if (worldName.isEmpty()) {
+                handleJson(exchange, "{}");
+                return;
+            }
+            
+            try {
+                worldName = java.net.URLDecoder.decode(worldName, "UTF-8");
+            } catch (Exception e) {
+                handleJson(exchange, "{\"error\":\"Invalid world name\"}");
+                return;
+            }
+            
+            String json = PlayerAnalyticsDb.getWorldStatsJson(worldName);
             handleJson(exchange, json);
         }
     }
