@@ -1,6 +1,6 @@
 # PlayerAnalytics Mod Documentation
 
-**Version**: 1.1  
+**Version**: 1.1.1  
 **Minecraft Version**: 1.20.1  
 **Mod Loader**: Minecraft Forge 47.3.0  
 **License**: MIT  
@@ -112,7 +112,7 @@
 ### Installation Steps
 
 1. **Download the Mod**
-   - Place `PlayerAnalytics-1.20.1-1.1.jar` in your server's `mods` folder
+   - Place `PlayerAnalytics-1.20.1-1.1.1.jar` in your server's `mods` folder
 
 2. **Start Server**
    ```bash
@@ -1282,4 +1282,4 @@ PlayerAnalytics is released under the MIT License. See LICENSE file for details.
 ---
 
 **Last Updated**: February 26, 2026  
-**Documentation Version**: 1.1
+**Documentation Version**: 1.1.1
