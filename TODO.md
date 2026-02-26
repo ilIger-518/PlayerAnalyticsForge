@@ -125,8 +125,8 @@
 ## 🎮 In-Game Features
 
 ### Commands
-- [ ] `/analytics` - Show own stats
-- [ ] `/analytics <player>` - Show other player stats
+- [x] `/analytics` - Show own stats
+- [x] `/analytics <player>` - Show other player stats
 - [ ] `/analytics reload` - Reload config
 - [ ] `/analytics export` - Export data
 - [ ] `/analytics debug` - Print diagnostics
