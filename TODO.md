@@ -114,6 +114,7 @@
 ### Discord Integration
 - [x] Discord bot support (token + channel ID)
 - [x] Configurable notifications (player joins, milestones, etc.)
+- [ ] Fix Discord embed sending: handle missing EmbedBuilder.setTimestamp in JDA beta and ensure messages post
 - [ ] Daily/weekly summary reports to Discord
 - [ ] Player achievement notifications
 

@@ -150,14 +150,29 @@ public final class DiscordIntegration {
             java.lang.reflect.Method setTitleMethod = embedBuilderClass.getMethod("setTitle", String.class);
             setTitleMethod.invoke(embed, title);
             
-            // Set description (may be appendDescription in beta versions)
+            // Set description - try multiple method names
             if (description != null && !description.isEmpty()) {
+                boolean descSet = false;
+                
+                // Try setDescription first
                 try {
-                    java.lang.reflect.Method setDescMethod = embedBuilderClass.getMethod("setDescription", String.class);
-                    setDescMethod.invoke(embed, description);
-                } catch (NoSuchMethodException e) {
-                    java.lang.reflect.Method appendDescMethod = embedBuilderClass.getMethod("appendDescription", String.class);
-                    appendDescMethod.invoke(embed, description);
+                    java.lang.reflect.Method m = embedBuilderClass.getMethod("setDescription", String.class);
+                    m.invoke(embed, description);
+                    descSet = true;
+                } catch (NoSuchMethodException ignored) {}
+                
+                // Try appendDescription
+                if (!descSet) {
+                    try {
+                        java.lang.reflect.Method m = embedBuilderClass.getMethod("appendDescription", String.class);
+                        m.invoke(embed, description);
+                        descSet = true;
+                    } catch (NoSuchMethodException ignored) {}
+                }
+                
+                // If neither works, skip description
+                if (!descSet) {
+                    PlayeranalyticsForgeMod.LOGGER.debug("Could not set description on EmbedBuilder - method not found");
                 }
             }
             
@@ -188,8 +203,10 @@ public final class DiscordIntegration {
             // Queue it (fire and forget)
             java.lang.reflect.Method queueMethod = action.getClass().getMethod("queue");
             queueMethod.invoke(action);
+            
+            PlayeranalyticsForgeMod.LOGGER.debug("Discord embed queued successfully");
         } catch (Exception ex) {
-            PlayeranalyticsForgeMod.LOGGER.debug("Failed to send Discord embed", ex);
+            PlayeranalyticsForgeMod.LOGGER.warn("Failed to send Discord embed: {}", ex.getClass().getSimpleName() + ": " + ex.getMessage());
         }
     }
 
