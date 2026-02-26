@@ -42,6 +42,10 @@ public final class PlayerEvents {
             if (AnalyticsConfig.TRACK_PLAYTIME.get()) {
                 PlayerAnalyticsDb.startSession(player);
             }
+            
+            // Send Discord notification
+            DiscordIntegration.notifyPlayerJoin(player.getGameProfile().getName(), player.getUUID().toString());
+            
             PlayeranalyticsForgeMod.LOGGER.info("Player joined: {} ({}) in world: {}", player.getGameProfile().getName(), player.getUUID(), worldName);
         }
     }
@@ -52,12 +56,24 @@ public final class PlayerEvents {
             // Remove world tracking
             playerWorlds.remove(player.getUUID());
             
+            long playtimeSeconds = 0;
+            if (AnalyticsConfig.TRACK_PLAYTIME.get()) {
+                PlayerAnalyticsDb.endSession(player);
+                // Try to get playtime from database
+                try {
+                    playtimeSeconds = PlayerAnalyticsDb.getPlayerPlaytimeSeconds(player.getUUID().toString());
+                } catch (Exception e) {
+                    PlayeranalyticsForgeMod.LOGGER.debug("Could not retrieve playtime", e);
+                }
+            }
+            
             if (AnalyticsConfig.TRACK_SESSIONS.get()) {
                 PlayerAnalyticsDb.recordEvent("leave", player);
             }
-            if (AnalyticsConfig.TRACK_PLAYTIME.get()) {
-                PlayerAnalyticsDb.endSession(player);
-            }
+            
+            // Send Discord notification
+            DiscordIntegration.notifyPlayerLeave(player.getGameProfile().getName(), player.getUUID().toString(), playtimeSeconds);
+            
             PlayeranalyticsForgeMod.LOGGER.info("Player left: {} ({})", player.getGameProfile().getName(), player.getUUID());
         }
     }
@@ -82,6 +98,9 @@ public final class PlayerEvents {
             // Record death cause
             String deathCause = getDeathCause(event.getSource());
             PlayerAnalyticsDb.recordDeathCause(victim.getUUID().toString(), victim.getGameProfile().getName(), deathCause);
+            
+            // Send Discord death notification
+            DiscordIntegration.notifyDeath(victim.getGameProfile().getName(), deathCause);
             
             // Reset kill streak on death
             PlayerAnalyticsDb.resetKillStreak(victim.getUUID().toString());
@@ -111,6 +130,9 @@ public final class PlayerEvents {
             PlayerAnalyticsDb.recordWeaponUsage(killer.getUUID().toString(), killer.getGameProfile().getName(), weaponUsed);
             PlayerAnalyticsDb.recordWorldKill(killer, victimName != null ? victimName : victimType, victimType, worldName, weaponUsed, isPvP);
             PlayerAnalyticsDb.recordKillStreak(killer.getUUID().toString());
+            
+            // Send Discord kill notification
+            DiscordIntegration.notifyKill(killer.getGameProfile().getName(), victimName != null ? victimName : victimType, weaponUsed, isPvP);
             
             // Record PvP or PvE kill
             if (isPvP) {

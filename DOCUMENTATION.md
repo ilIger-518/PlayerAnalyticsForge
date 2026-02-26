@@ -1,6 +1,6 @@
 # PlayerAnalytics Mod Documentation
 
-**Version**: 1.0  
+**Version**: 1.1  
 **Minecraft Version**: 1.20.1  
 **Mod Loader**: Minecraft Forge 47.3.0  
 **License**: MIT  
@@ -13,13 +13,14 @@
 2. [Features](#features)
 3. [Installation & Setup](#installation--setup)
 4. [Configuration](#configuration)
-5. [In-Game Commands](#in-game-commands)
-6. [Web Dashboard](#web-dashboard)
-7. [REST API Reference](#rest-api-reference)
-8. [Database Schema](#database-schema)
-9. [Multi-Server Network](#multi-server-network)
-10. [Troubleshooting](#troubleshooting)
-11. [Development](#development)
+5. [Discord Integration](#discord-integration)
+6. [In-Game Commands](#in-game-commands)
+7. [Web Dashboard](#web-dashboard)
+8. [REST API Reference](#rest-api-reference)
+9. [Database Schema](#database-schema)
+10. [Multi-Server Network](#multi-server-network)
+11. [Troubleshooting](#troubleshooting)
+12. [Development](#development)
 
 ---
 
@@ -34,7 +35,8 @@
 - 🌍 **Multi-Server Support**: Track players across multiple connected servers
 - 💻 **Web Dashboard**: Beautiful, interactive dashboard at `http://server:8804`
 - 🔌 **REST API**: Comprehensive API for integrating analytics into external tools
-- ⚙️ **Highly Configurable**: TOML-based configuration with ~20 settings
+- 💬 **Discord Integration**: Send real-time notifications to Discord webhooks
+- ⚙️ **Highly Configurable**: TOML-based configuration with ~25 settings
 - 🗄️ **SQLite Database**: Local persistent storage with automatic maintenance
 
 ---
@@ -87,6 +89,16 @@
 - Server comparison by player count and activity
 - Server registry and online status tracking
 
+#### Discord Notifications
+- Real-time Discord webhook integration
+- Player join/leave notifications with session duration
+- Kill notifications (PvP/PvE with weapon info)
+- Death notifications with death cause
+- Server milestone alerts
+- Periodic server stats summaries
+- Color-coded embed formatting for easy recognition
+- Configurable notification categories
+
 ---
 
 ## Installation & Setup
@@ -100,7 +112,7 @@
 ### Installation Steps
 
 1. **Download the Mod**
-   - Place `PlayerAnalytics-1.20.1-1.0.jar` in your server's `mods` folder
+   - Place `PlayerAnalytics-1.20.1-1.1.jar` in your server's `mods` folder
 
 2. **Start Server**
    ```bash
@@ -235,6 +247,145 @@ config/playeranalytics-common.toml
   # How often to sync stats to central server (60-3600 seconds)
   syncIntervalSeconds = 300
 ```
+
+---
+
+## Discord Integration
+
+PlayerAnalytics can send real-time event notifications to Discord via webhooks. This allows server admins and moderators to stay informed about player activity without accessing the web dashboard.
+
+### Setting Up Discord Webhooks
+
+1. **Create a Discord Webhook**:
+   - In your Discord server, go to: Settings → Integrations → Webhooks
+   - Click "Create Webhook"
+   - Give it a name (e.g., "PlayerAnalytics")
+   - Select the channel where notifications should appear
+   - Copy the webhook URL (format: `https://discordapp.com/api/webhooks/...`)
+
+2. **Configure the Mod**:
+   - Open `config/playeranalytics-common.toml`
+   - Find or create the `[playeranalytics.discord]` section
+   - Set `enabled = true`
+   - Paste your webhook URL into `webhookUrl = "https://..."`
+
+### Discord Configuration
+
+```toml
+[playeranalytics.discord]
+  # Enable Discord webhook integration
+  enabled = false
+  
+  # Discord webhook URL (get from: Server Settings > Integrations > Webhooks)
+  webhookUrl = ""
+  
+  # Send notifications when players join
+  notifyJoins = true
+  
+  # Send notifications when players leave (includes session duration)
+  notifyLeaves = true
+  
+  # Send notifications for kills (PvP and PvE)
+  notifyKills = false
+  
+  # Send notifications when players die (includes death cause)
+  notifyDeaths = false
+  
+  # Send notifications for server milestones
+  notifyMilestones = true
+  
+  # Send periodic server stats summaries
+  notifyStats = false
+```
+
+### Notification Examples
+
+**Player Join Notification**:
+```
+⬇️ Player Joined
+Player1
+[Timestamp]
+```
+
+**Player Leave Notification**:
+```
+⬆️ Player Left
+Player1
+Session Duration: 2h 30m 45s
+[Timestamp]
+```
+
+**PvP Kill Notification**:
+```
+⚔️ PvP Kill
+Player1 eliminated Player2
+Weapon: Diamond Sword
+Type: PvP
+[Timestamp]
+```
+
+**PvE Kill Notification**:
+```
+⚔️ PvE Kill
+Player1 eliminated Zombie
+Weapon: Iron Sword
+Type: PvE
+[Timestamp]
+```
+
+**Death Notification**:
+```
+💀 Player Death
+Player1 died
+Cause: Fall Damage
+[Timestamp]
+```
+
+**Milestone Notification**:
+```
+🎉 Server Milestone
+Player1 reached 1,000 total kills!
+[Timestamp]
+```
+
+**Server Stats Notification**:
+```
+📊 Server Stats - Survival
+Players Online: 8
+TPS: 🟢 19.8
+[Timestamp]
+```
+
+### Customization
+
+Discord notifications include:
+- **Embedded format** with color coding:
+  - 🟢 Green for joins and milestones
+  - 🔴 Red for PvP kills
+  - 🟡 Yellow for PvE kills
+  - ⚫ Dark gray for deaths
+  - 🔵 Blue for server stats
+- **Timestamps** in ISO 8601 format (UTC)
+- **Escape sequence handling** for special characters in player names
+
+### Troubleshooting Discord
+
+**Problem**: Webhook URL not working
+
+**Solutions**:
+1. Verify webhook URL starts with `https://`
+2. Check webhook hasn't been deleted (recreate if needed)
+3. Ensure Discord server has permission to post in selected channel
+4. Check server logs for webhook errors
+
+**Problem**: Notifications not appearing
+
+**Solutions**:
+1. Enable the feature: `enabled = true`
+2. Paste correct webhook URL: `webhookUrl = "https://..."`
+3. Enable specific notification types: `notifyJoins = true`, etc.
+4. Check Discord bot has permission to post in the channel
+5. Look for error messages in server logs
 
 ---
 
@@ -1017,7 +1168,14 @@ app/
 
 ## Version History
 
-### v1.0 (Current)
+### v1.1 (Current)
+- Discord webhook integration (real-time notifications)
+- Enhanced event notifications for joins, leaves, kills, deaths
+- Session duration tracking in Discord notifications
+- Configurable Discord notification categories
+- Milestone and stats summary notifications
+
+### v1.0
 - Core analytics framework
 - Combat statistics
 - Web dashboard with sorting/filtering
@@ -1029,12 +1187,13 @@ app/
 
 ### Planned Features
 - GeoIP location tracking
-- Discord webhook integration
 - Advanced cohort analysis
 - A/B testing framework
 - Custom event tracking
 - Plugin API for extensions
 - MySQL/PostgreSQL support
+- Telegram bot integration
+- Live Twitch alerts
 
 ---
 
@@ -1104,4 +1263,4 @@ PlayerAnalytics is released under the MIT License. See LICENSE file for details.
 ---
 
 **Last Updated**: February 26, 2026  
-**Documentation Version**: 1.0
+**Documentation Version**: 1.1

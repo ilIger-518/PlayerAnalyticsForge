@@ -1040,6 +1040,22 @@ public final class PlayerAnalyticsDb {
         }
     }
 
+    public static long getPlayerPlaytimeSeconds(String playerUUID) throws SQLException {
+        synchronized (LOCK) {
+            Connection conn = init();
+            String sql = "SELECT total_playtime_seconds FROM player_stats WHERE player_uuid = ?";
+            try (PreparedStatement statement = conn.prepareStatement(sql)) {
+                statement.setString(1, playerUUID);
+                try (ResultSet rs = statement.executeQuery()) {
+                    if (rs.next()) {
+                        return rs.getLong("total_playtime_seconds");
+                    }
+                }
+            }
+            return 0;
+        }
+    }
+
     public static String getSessionsJson(int limit) {
         synchronized (LOCK) {
             try {

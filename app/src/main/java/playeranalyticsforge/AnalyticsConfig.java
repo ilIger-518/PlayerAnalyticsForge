@@ -46,6 +46,16 @@ public final class AnalyticsConfig {
     public static final ForgeConfigSpec.ConfigValue<String> CENTRAL_SERVER_URL;
     public static final ForgeConfigSpec.IntValue NETWORK_SYNC_INTERVAL_SECONDS;
     
+    // Discord Configuration
+    public static final ForgeConfigSpec.BooleanValue DISCORD_ENABLED;
+    public static final ForgeConfigSpec.ConfigValue<String> DISCORD_WEBHOOK_URL;
+    public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_JOINS;
+    public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_LEAVES;
+    public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_KILLS;
+    public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_DEATHS;
+    public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_MILESTONES;
+    public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_STATS;
+    
     static {
         BUILDER.comment("PlayerAnalytics Configuration")
                 .push("playeranalytics");
@@ -175,6 +185,44 @@ public final class AnalyticsConfig {
         NETWORK_SYNC_INTERVAL_SECONDS = BUILDER
                 .comment("How often to sync stats to central server (in seconds)")
                 .defineInRange("syncIntervalSeconds", 300, 60, 3600);
+        
+        BUILDER.pop();
+        
+        // Discord Configuration
+        BUILDER.comment("Discord Integration - Enable webhooks to send events to Discord")
+                .push("discord");
+        
+        DISCORD_ENABLED = BUILDER
+                .comment("Enable Discord webhook integration")
+                .define("enabled", false);
+        
+        DISCORD_WEBHOOK_URL = BUILDER
+                .comment("Discord webhook URL (get from: Server Settings > Integrations > Webhooks > Create Webhook > Copy Webhook URL)")
+                .define("webhookUrl", "");
+        
+        DISCORD_NOTIFY_JOINS = BUILDER
+                .comment("Send notifications when players join")
+                .define("notifyJoins", true);
+        
+        DISCORD_NOTIFY_LEAVES = BUILDER
+                .comment("Send notifications when players leave")
+                .define("notifyLeaves", true);
+        
+        DISCORD_NOTIFY_KILLS = BUILDER
+                .comment("Send notifications for kills (PvP and PvE)")
+                .define("notifyKills", false);
+        
+        DISCORD_NOTIFY_DEATHS = BUILDER
+                .comment("Send notifications when players die")
+                .define("notifyDeaths", false);
+        
+        DISCORD_NOTIFY_MILESTONES = BUILDER
+                .comment("Send notifications for server milestones")
+                .define("notifyMilestones", true);
+        
+        DISCORD_NOTIFY_STATS = BUILDER
+                .comment("Send periodic server stats summaries")
+                .define("notifyStats", false);
         
         BUILDER.pop();
         
