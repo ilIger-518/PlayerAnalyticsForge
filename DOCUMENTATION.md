@@ -1187,7 +1187,7 @@ app/
 
 ## Version History
 
-### v1.1 (Current)
+### v1.1.1 (Current)
 - Discord bot integration (real-time notifications)
 - Enhanced event notifications for joins, leaves, kills, deaths
 - Session duration tracking in Discord notifications
