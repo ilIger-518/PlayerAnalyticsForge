@@ -44,14 +44,14 @@
   - [x] Join/leaves per day (bar chart)
   - [x] Playtime distribution (pie chart)
   - [x] Hourly activity heatmap
-  - [ ] Geographic distribution map
+  - [x] Geographic distribution map
 - [x] Player profile pages (individual player stats)
 - [x] Server overview dashboard
 - [x] Real-time player list (currently online)
 - [x] Leaderboards (most active, highest K/D, longest playtime)
 - [x] Sorting and filtering for tables
 - [x] Search functionality (table filtering)
-- [ ] Date range selectors for graphs
+- [x] Date range selectors for graphs
 
 ### API Endpoints (REST)
 - [x] `/api/player/{uuid}` - Individual player details
@@ -73,7 +73,7 @@
 - [x] CPU usage tracking
 - [x] Entity count monitoring
 - [ ] Chunk load count
-- [ ] Average ping/latency per player
+- [x] Average ping/latency per player
 
 ### World Statistics
 - [x] Per-world player counts
