@@ -2,6 +2,17 @@
 
 Player analytics mod for Minecraft Forge 1.20.1.
 
+## Installation
+
+### JAR File Selection
+
+Two JAR files are provided in each release:
+
+- **`PlayerAnalytics-X.X.X-all.jar`** (Recommended for servers) - Contains the mod + all bundled dependencies (JDA, SQLite, etc.). Use this for server deployment.
+- **`PlayerAnalytics-X.X.X.jar`** (Development only) - Contains only the mod code. Requires dependencies to be manually added to a libs folder.
+
+**For server deployment, always use the `-all.jar` file** to ensure all dependencies are included and the mod works immediately without requiring manual setup.
+
 ## Server-side only
 This mod is intended to run on the server only. Players do not need to install it on their client to join the server.
 

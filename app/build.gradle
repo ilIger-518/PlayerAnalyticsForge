@@ -116,6 +116,8 @@ tasks.matching { it.name.startsWith('prepare') && it.name.contains('Run') }.conf
 }
 
 tasks.named('jar', Jar) {
+    archiveBaseName = 'PlayerAnalytics'
+    
     manifest {
         attributes([
             'Specification-Title'     : project.mod_id,
@@ -127,4 +129,8 @@ tasks.named('jar', Jar) {
         ])
     }
     finalizedBy 'reobfJar'
+}
+
+tasks.named('jarJar').configure {
+    archiveBaseName = 'PlayerAnalytics'
 }
