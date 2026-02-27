@@ -229,13 +229,8 @@ public final class DiscordIntegration {
             java.lang.reflect.Method setColorMethod = embedBuilderClass.getMethod("setColor", colorClass);
             setColorMethod.invoke(embed, colorObj);
             
-            // Set timestamp
-            try {
-                Class<?> instantClass = Class.forName("java.time.Instant");
-                Object now = instantClass.getMethod("now").invoke(null);
-                java.lang.reflect.Method setTimestampMethod = embedBuilderClass.getMethod("setTimestamp", instantClass);
-                setTimestampMethod.invoke(embed, now);
-            } catch (NoSuchMethodException e) {
+            // Set timestamp (handle JDA 5 beta signature changes)
+            if (!trySetTimestamp(embedBuilderClass, embed)) {
                 PlayeranalyticsForgeMod.LOGGER.debug("setTimestamp method not found, skipping timestamp");
             }
             
@@ -286,6 +281,45 @@ public final class DiscordIntegration {
         } catch (Exception ex) {
             PlayeranalyticsForgeMod.LOGGER.error("Failed to send Discord embed: {}", ex.getMessage(), ex);
         }
+    }
+
+    private static boolean trySetTimestamp(Class<?> embedBuilderClass, Object embed) {
+        for (java.lang.reflect.Method method : embedBuilderClass.getMethods()) {
+            if (!"setTimestamp".equals(method.getName()) || method.getParameterCount() != 1) {
+                continue;
+            }
+            Object timestamp = buildTimestampArgument(method.getParameterTypes()[0]);
+            if (timestamp == null) {
+                continue;
+            }
+            try {
+                method.invoke(embed, timestamp);
+                return true;
+            } catch (Exception ex) {
+                PlayeranalyticsForgeMod.LOGGER.debug("Failed to set embed timestamp: {}", ex.getMessage());
+            }
+        }
+        return false;
+    }
+
+    private static Object buildTimestampArgument(Class<?> paramType) {
+        String typeName = paramType.getName();
+        if ("java.time.Instant".equals(typeName)) {
+            return java.time.Instant.now();
+        }
+        if ("java.time.OffsetDateTime".equals(typeName)) {
+            return java.time.OffsetDateTime.now();
+        }
+        if ("java.time.ZonedDateTime".equals(typeName)) {
+            return java.time.ZonedDateTime.now();
+        }
+        if ("java.time.LocalDateTime".equals(typeName)) {
+            return java.time.LocalDateTime.now();
+        }
+        if ("java.time.temporal.TemporalAccessor".equals(typeName)) {
+            return java.time.OffsetDateTime.now();
+        }
+        return null;
     }
 
     /**
