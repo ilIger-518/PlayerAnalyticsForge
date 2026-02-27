@@ -117,7 +117,19 @@
 ### Installation Steps
 
 1. **Download the Mod**
-  - Place `PlayerAnalytics-1.20.1-1.2.jar` in your server's `mods` folder
+   - Download `PlayerAnalytics-X.X.X-all.jar` from the releases page
+   - Place it in your server's `mods` folder
+   
+   **JAR File Variants**:
+   - **`PlayerAnalytics-X.X.X-all.jar`** ← **Use this for production servers**
+     - Contains mod code + all bundled dependencies (JDA, SQLite JDBC, etc.)
+     - Standalone, requires nothing else - works immediately
+     - Recommended for all server deployments
+   
+   - `PlayerAnalytics-X.X.X.jar` (Development use only)
+     - Contains only mod code
+     - Requires manual dependency setup in a libs folder
+     - Not recommended for production use
 
 2. **Start Server**
    ```bash
