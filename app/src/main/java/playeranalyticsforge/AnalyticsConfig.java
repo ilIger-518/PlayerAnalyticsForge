@@ -38,6 +38,10 @@ public final class AnalyticsConfig {
     public static final ForgeConfigSpec.IntValue DATA_RETENTION_DAYS;
     public static final ForgeConfigSpec.BooleanValue AUTO_CLEANUP_ENABLED;
     public static final ForgeConfigSpec.IntValue CLEANUP_INTERVAL_HOURS;
+
+        // Update Check Configuration
+        public static final ForgeConfigSpec.BooleanValue UPDATE_CHECK_ENABLED;
+        public static final ForgeConfigSpec.IntValue UPDATE_CHECK_INTERVAL_HOURS;
     
     // Network Configuration
     public static final ForgeConfigSpec.BooleanValue NETWORK_ENABLED;
@@ -163,6 +167,20 @@ public final class AnalyticsConfig {
                 .comment("How often to run cleanup (in hours)")
                 .defineInRange("cleanupIntervalHours", 24, 1, 168);
         
+        BUILDER.pop();
+
+        // Update Check
+        BUILDER.comment("Update Check Configuration")
+                .push("updates");
+
+        UPDATE_CHECK_ENABLED = BUILDER
+                .comment("Enable or disable automatic update checks")
+                .define("checkUpdates", true);
+
+        UPDATE_CHECK_INTERVAL_HOURS = BUILDER
+                .comment("How often to check for updates (in hours)")
+                .defineInRange("checkIntervalHours", 1, 1, 168);
+
         BUILDER.pop();
         
         // Network Configuration
