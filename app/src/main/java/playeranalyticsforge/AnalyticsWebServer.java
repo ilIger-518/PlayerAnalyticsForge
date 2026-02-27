@@ -46,6 +46,9 @@ public final class AnalyticsWebServer {
             }
 
             server.createContext("/", new IndexHandler());
+            server.createContext("/players", new PlayersPageHandler());
+            server.createContext("/sessions", new SessionsPageHandler());
+            server.createContext("/network", new NetworkPageHandler());
             server.createContext("/api/summary", exchange -> handleJson(exchange, PlayerAnalyticsDb.getSummaryJson()));
             server.createContext("/api/events", exchange -> handleJson(exchange, PlayerAnalyticsDb.getRecentEventsJson(readLimit(exchange))));
             server.createContext("/api/players", exchange -> handleJson(exchange, PlayerAnalyticsDb.getPlayersJson(readLimit(exchange))));
@@ -55,6 +58,7 @@ public final class AnalyticsWebServer {
             server.createContext("/api/metrics", exchange -> handleJson(exchange, PlayerAnalyticsDb.getServerMetricsJson()));
             server.createContext("/api/metrics/history", exchange -> handleJson(exchange, PlayerAnalyticsDb.getMetricsHistoryJson(readLimit(exchange))));
             server.createContext("/api/combat", exchange -> handleJson(exchange, PlayerAnalyticsDb.getCombatStatsJson()));
+            server.createContext("/api/combat/trends", exchange -> handleJson(exchange, PlayerAnalyticsDb.getCombatTrendsJson(readDays(exchange, 30, 365))));
             server.createContext("/api/weapons", exchange -> handleJson(exchange, PlayerAnalyticsDb.getWeaponStatsJson()));
             server.createContext("/api/combat/deaths/", new DeathCausesHandler());
             server.createContext("/api/combat/matrix/", new KillMatrixHandler());
@@ -113,6 +117,20 @@ public final class AnalyticsWebServer {
         }
     }
 
+      private static int readDays(HttpExchange exchange, int defaultDays, int maxDays) {
+        Map<String, String> params = parseQuery(exchange.getRequestURI());
+        String daysValue = params.get("days");
+        if (daysValue == null) {
+          return defaultDays;
+        }
+        try {
+          int days = Integer.parseInt(daysValue);
+          return Math.max(1, Math.min(days, maxDays));
+        } catch (NumberFormatException ex) {
+          return defaultDays;
+        }
+      }
+
     private static Map<String, String> parseQuery(URI uri) {
         Map<String, String> params = new HashMap<>();
         String query = uri.getRawQuery();
@@ -148,6 +166,46 @@ public final class AnalyticsWebServer {
         }
     }
 
+    private static final class PlayersPageHandler implements HttpHandler {
+      @Override
+      public void handle(HttpExchange exchange) throws IOException {
+        byte[] body = PLAYERS_HTML.getBytes(StandardCharsets.UTF_8);
+        Headers headers = exchange.getResponseHeaders();
+        headers.set("Content-Type", "text/html; charset=utf-8");
+        exchange.sendResponseHeaders(200, body.length);
+        try (OutputStream output = exchange.getResponseBody()) {
+          output.write(body);
+        }
+      }
+    }
+
+    private static final class SessionsPageHandler implements HttpHandler {
+      @Override
+      public void handle(HttpExchange exchange) throws IOException {
+        byte[] body = SESSIONS_HTML.getBytes(StandardCharsets.UTF_8);
+        Headers headers = exchange.getResponseHeaders();
+        headers.set("Content-Type", "text/html; charset=utf-8");
+        exchange.sendResponseHeaders(200, body.length);
+        try (OutputStream output = exchange.getResponseBody()) {
+          output.write(body);
+        }
+      }
+    }
+
+    private static final class NetworkPageHandler implements HttpHandler {
+      @Override
+      public void handle(HttpExchange exchange) throws IOException {
+        String html = NETWORK_HTML_TEMPLATE.replace("{NETWORK_NAME}", AnalyticsConfig.NETWORK_NAME.get());
+        byte[] body = html.getBytes(StandardCharsets.UTF_8);
+        Headers headers = exchange.getResponseHeaders();
+        headers.set("Content-Type", "text/html; charset=utf-8");
+        exchange.sendResponseHeaders(200, body.length);
+        try (OutputStream output = exchange.getResponseBody()) {
+          output.write(body);
+        }
+      }
+    }
+
     private static final String INDEX_HTML = """
         <!doctype html>
         <html lang=\"en\">
@@ -174,6 +232,27 @@ public final class AnalyticsWebServer {
               }
               header {
                 padding: 32px 24px 12px;
+              }
+              .nav {
+                display: flex;
+                gap: 12px;
+                flex-wrap: wrap;
+                margin-top: 14px;
+              }
+              .nav-link {
+                text-decoration: none;
+                color: var(--ink);
+                padding: 6px 12px;
+                border-radius: 999px;
+                border: 1px solid var(--line);
+                background: #fff;
+                font-size: 14px;
+                font-weight: 600;
+              }
+              .nav-link.active {
+                background: var(--accent);
+                border-color: var(--accent);
+                color: #fff;
               }
               h1 {
                 margin: 0 0 6px;
@@ -330,6 +409,39 @@ public final class AnalyticsWebServer {
                 opacity: 0.8;
                 margin-top: 4px;
               }
+              .chart-grid {
+                display: grid;
+                gap: 16px;
+                grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+              }
+              .chart-tile {
+                background: rgba(255, 255, 255, 0.9);
+                border: 1px solid var(--line);
+                border-radius: 14px;
+                padding: 12px;
+              }
+              .chart-title {
+                font-weight: 600;
+                margin-bottom: 8px;
+              }
+              .churn-metrics {
+                display: grid;
+                gap: 10px;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                margin-bottom: 12px;
+              }
+              .churn-metric {
+                background: rgba(208, 117, 47, 0.12);
+                border-radius: 10px;
+                padding: 8px;
+                text-align: center;
+                font-size: 12px;
+              }
+              .churn-metric strong {
+                display: block;
+                font-size: 18px;
+                color: var(--ink);
+              }
               .status-indicator {
                 display: inline-block;
                 width: 10px;
@@ -352,6 +464,12 @@ public final class AnalyticsWebServer {
             <header>
               <h1>Playeranalytics</h1>
               <p>Local server dashboard. Refreshes automatically.</p>
+              <nav class=\"nav\">
+                <a class=\"nav-link active\" href=\"/\">Overview</a>
+                <a class=\"nav-link\" href=\"/players\">Players</a>
+                <a class=\"nav-link\" href=\"/sessions\">Sessions</a>
+                <a class=\"nav-link\" href=\"/network\">Network</a>
+              </nav>
             </header>
             <main>
               <section class=\"card card-full overview\">
@@ -390,6 +508,40 @@ public final class AnalyticsWebServer {
                     <div class=\"overview-metric-label\">Combat Stats</div>
                     <div class=\"overview-metric-value\" id=\"overview-kills\">0</div>
                     <div class=\"overview-metric-sub\" id=\"overview-deaths\">0 deaths</div>
+                  </div>
+                </div>
+              </section>
+              <section class=\"card card-full\">
+                <div class=\"pill\">Visual Stats</div>
+                <div class=\"chart-grid\">
+                  <div class=\"chart-tile\">
+                    <div class=\"chart-title\">Active Players Over Time</div>
+                    <div style=\"position: relative; height: 200px;\">
+                      <canvas id=\"activityTrendsChart\"></canvas>
+                    </div>
+                  </div>
+                  <div class=\"chart-tile\">
+                    <div class=\"chart-title\">Kills vs Deaths (Last 30 Days)</div>
+                    <div style=\"position: relative; height: 200px;\">
+                      <canvas id=\"killsDeathsChart\"></canvas>
+                    </div>
+                  </div>
+                  <div class=\"chart-tile\">
+                    <div class=\"chart-title\">Churn Overview</div>
+                    <div class=\"churn-metrics\">
+                      <div class=\"churn-metric\"><strong id=\"churn-7-count\">0</strong>7d</div>
+                      <div class=\"churn-metric\"><strong id=\"churn-30-count\">0</strong>30d</div>
+                      <div class=\"churn-metric\"><strong id=\"churn-90-count\">0</strong>90d</div>
+                    </div>
+                    <div style=\"position: relative; height: 180px;\">
+                      <canvas id=\"churnChart\"></canvas>
+                    </div>
+                  </div>
+                  <div class=\"chart-tile\">
+                    <div class=\"chart-title\">Active vs AFK (Top 5)</div>
+                    <div style=\"position: relative; height: 200px;\">
+                      <canvas id=\"afkActiveChart\"></canvas>
+                    </div>
                   </div>
                 </div>
               </section>
@@ -561,12 +713,6 @@ public final class AnalyticsWebServer {
                   <p>Avg Duration: <strong id=\"insights-avg\">-</strong></p>
                   <p>Max Duration: <strong id=\"insights-max\">-</strong></p>
                   <p>Min Duration: <strong id=\"insights-min\">-</strong></p>
-                </div>
-              </section>
-              <section class=\"card card-full\">
-                <div class=\"pill\">Activity Trends (Last 30 Days)</div>
-                <div style=\"position: relative; height: 300px;\">
-                  <canvas id=\"activityTrendsChart\"></canvas>
                 </div>
               </section>
               <section class=\"card card-full\">
@@ -857,6 +1003,9 @@ public final class AnalyticsWebServer {
 
               let playtimeChartInstance = null;
               let killsChartInstance = null;
+              let killsDeathsChartInstance = null;
+              let churnChartInstance = null;
+              let afkActiveChartInstance = null;
 
               async function loadPlaytimeChart() {
                 const res = await fetch(\"/api/playtime\");
@@ -929,6 +1078,162 @@ public final class AnalyticsWebServer {
                     scales: {
                       x: {
                         beginAtZero: true
+                      }
+                    }
+                  }
+                });
+              }
+
+              async function loadKillsDeathsChart() {
+                const res = await fetch("/api/combat/trends?days=30");
+                const data = await res.json();
+                if (data.length === 0) return;
+
+                const ctx = document.getElementById("killsDeathsChart").getContext("2d");
+                if (killsDeathsChartInstance) {
+                  killsDeathsChartInstance.destroy();
+                }
+                killsDeathsChartInstance = new Chart(ctx, {
+                  type: "line",
+                  data: {
+                    labels: data.map(d => d.date),
+                    datasets: [
+                      {
+                        label: "Kills",
+                        data: data.map(d => d.kills),
+                        borderColor: "#ef4444",
+                        backgroundColor: "rgba(239, 68, 68, 0.12)",
+                        borderWidth: 2,
+                        tension: 0.3
+                      },
+                      {
+                        label: "Deaths",
+                        data: data.map(d => d.deaths),
+                        borderColor: "#6366f1",
+                        backgroundColor: "rgba(99, 102, 241, 0.12)",
+                        borderWidth: 2,
+                        tension: 0.3
+                      }
+                    ]
+                  },
+                  options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: {
+                        position: "top"
+                      }
+                    },
+                    scales: {
+                      y: {
+                        beginAtZero: true
+                      }
+                    }
+                  }
+                });
+              }
+
+              async function loadChurnChart() {
+                const res = await fetch("/api/churn/analysis");
+                const data = await res.json();
+
+                const churn7 = data.churnedLast7Days || 0;
+                const churn30 = data.churnedLast30Days || 0;
+                const churn90 = data.churnedLast90Days || 0;
+                const rate7 = data.churnRate7Days || 0;
+                const rate30 = data.churnRate30Days || 0;
+                const rate90 = data.churnRate90Days || 0;
+
+                document.getElementById("churn-7-count").textContent = churn7;
+                document.getElementById("churn-30-count").textContent = churn30;
+                document.getElementById("churn-90-count").textContent = churn90;
+
+                const ctx = document.getElementById("churnChart").getContext("2d");
+                if (churnChartInstance) {
+                  churnChartInstance.destroy();
+                }
+                churnChartInstance = new Chart(ctx, {
+                  type: "bar",
+                  data: {
+                    labels: ["7d", "30d", "90d"],
+                    datasets: [{
+                      label: "Churn Rate (%)",
+                      data: [rate7, rate30, rate90],
+                      backgroundColor: ["#fb7185", "#f97316", "#facc15"],
+                      borderWidth: 0
+                    }]
+                  },
+                  options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: {
+                        display: false
+                      },
+                      tooltip: {
+                        callbacks: {
+                          label: (ctx) => `${ctx.parsed.y}%`
+                        }
+                      }
+                    },
+                    scales: {
+                      y: {
+                        beginAtZero: true,
+                        ticks: {
+                          callback: (value) => `${value}%`
+                        }
+                      }
+                    }
+                  }
+                });
+              }
+
+              async function loadAfkActiveChart() {
+                const res = await fetch("/api/playtime");
+                const data = await res.json();
+                if (data.length === 0) return;
+
+                const topPlayers = data
+                  .sort((a, b) => b.totalPlaytimeSeconds - a.totalPlaytimeSeconds)
+                  .slice(0, 5);
+
+                const ctx = document.getElementById("afkActiveChart").getContext("2d");
+                if (afkActiveChartInstance) {
+                  afkActiveChartInstance.destroy();
+                }
+                afkActiveChartInstance = new Chart(ctx, {
+                  type: "bar",
+                  data: {
+                    labels: topPlayers.map(p => p.playerName),
+                    datasets: [
+                      {
+                        label: "Active (hrs)",
+                        data: topPlayers.map(p => (p.activePlaytimeSeconds / 3600).toFixed(1)),
+                        backgroundColor: "#22c55e"
+                      },
+                      {
+                        label: "AFK (hrs)",
+                        data: topPlayers.map(p => (p.totalAfkSeconds / 3600).toFixed(1)),
+                        backgroundColor: "#94a3b8"
+                      }
+                    ]
+                  },
+                  options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: "y",
+                    plugins: {
+                      legend: {
+                        position: "top"
+                      }
+                    },
+                    scales: {
+                      x: {
+                        stacked: true,
+                        beginAtZero: true
+                      },
+                      y: {
+                        stacked: true
                       }
                     }
                   }
@@ -1273,7 +1578,28 @@ public final class AnalyticsWebServer {
               }
 
               async function refreshAll() {
-                await Promise.all([loadServerOverview(), loadSummary(), loadEvents(), loadPlayers(), loadSessions(), loadKills(), loadPlaytimeDetails(), loadPlaytimeChart(), loadKillsChart(), loadServerMetrics(), loadCombatStats(), loadWeaponChart(), loadSessionInsights(), loadActivityTrends(), loadHourlyActivity(), loadLeaderboards(), loadOnlinePlayers()]);
+                await Promise.all([
+                  loadServerOverview(),
+                  loadSummary(),
+                  loadEvents(),
+                  loadPlayers(),
+                  loadSessions(),
+                  loadKills(),
+                  loadPlaytimeDetails(),
+                  loadPlaytimeChart(),
+                  loadKillsChart(),
+                  loadKillsDeathsChart(),
+                  loadChurnChart(),
+                  loadAfkActiveChart(),
+                  loadServerMetrics(),
+                  loadCombatStats(),
+                  loadWeaponChart(),
+                  loadSessionInsights(),
+                  loadActivityTrends(),
+                  loadHourlyActivity(),
+                  loadLeaderboards(),
+                  loadOnlinePlayers()
+                ]);
               }
 
               // Initialize tables
@@ -1307,6 +1633,988 @@ public final class AnalyticsWebServer {
 
               initTables();
               setInterval(refreshAll, 5000);
+            </script>
+          </body>
+        </html>
+        """;
+
+    private static final String PLAYERS_HTML = """
+        <!doctype html>
+        <html lang=\"en\">
+          <head>
+            <meta charset=\"utf-8\" />
+            <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+            <title>Players - Playeranalytics</title>
+            <script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>
+            <style>
+              :root {
+                color-scheme: light;
+                --bg: #f6f4ef;
+                --ink: #1f1d1a;
+                --muted: #6f655d;
+                --accent: #d0752f;
+                --card: #ffffff;
+                --line: #e4ddd4;
+              }
+              body {
+                margin: 0;
+                font-family: \"Space Grotesk\", \"IBM Plex Sans\", \"Segoe UI\", sans-serif;
+                background: radial-gradient(circle at top, #fff7ed 0%, var(--bg) 55%);
+                color: var(--ink);
+              }
+              header {
+                padding: 32px 24px 12px;
+              }
+              h1 {
+                margin: 0 0 6px;
+                font-size: 32px;
+                letter-spacing: -0.02em;
+              }
+              p {
+                margin: 0;
+                color: var(--muted);
+              }
+              .nav {
+                display: flex;
+                gap: 12px;
+                flex-wrap: wrap;
+                margin-top: 14px;
+              }
+              .nav-link {
+                text-decoration: none;
+                color: var(--ink);
+                padding: 6px 12px;
+                border-radius: 999px;
+                border: 1px solid var(--line);
+                background: #fff;
+                font-size: 14px;
+                font-weight: 600;
+              }
+              .nav-link.active {
+                background: var(--accent);
+                border-color: var(--accent);
+                color: #fff;
+              }
+              main {
+                display: grid;
+                gap: 18px;
+                padding: 0 24px 32px;
+                grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+              }
+              .card-full { grid-column: 1 / -1; }
+              .card-half { grid-column: span 1; }
+              @media (max-width: 1200px) {
+                .card-half { grid-column: 1 / -1; }
+              }
+              .card {
+                background: var(--card);
+                border: 1px solid var(--line);
+                border-radius: 16px;
+                padding: 16px;
+                box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
+              }
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 14px;
+              }
+              th, td {
+                padding: 8px;
+                border-bottom: 1px solid var(--line);
+                text-align: left;
+              }
+              th {
+                color: var(--muted);
+                font-weight: 600;
+              }
+              th.sortable { cursor: pointer; user-select: none; position: relative; padding-right: 24px; }
+              th.sortable:hover { color: var(--accent); }
+              th.sortable::after { content: '⇅'; position: absolute; right: 8px; opacity: 0.3; font-size: 12px; }
+              th.sortable.asc::after { content: '▲'; opacity: 1; color: var(--accent); }
+              th.sortable.desc::after { content: '▼'; opacity: 1; color: var(--accent); }
+              .table-controls {
+                display: flex;
+                gap: 12px;
+                align-items: center;
+                margin-bottom: 12px;
+                flex-wrap: wrap;
+              }
+              .search-input {
+                flex: 1;
+                min-width: 200px;
+                padding: 8px 12px;
+                border: 1px solid var(--line);
+                border-radius: 6px;
+                background: var(--bg);
+                color: var(--text);
+                font-size: 14px;
+              }
+              .search-input:focus { outline: none; border-color: var(--accent); }
+              .filter-badge {
+                display: inline-block;
+                padding: 4px 8px;
+                background: rgba(208, 117, 47, 0.15);
+                border-radius: 4px;
+                font-size: 12px;
+                color: var(--accent);
+              }
+              .pill {
+                display: inline-block;
+                padding: 2px 8px;
+                border-radius: 999px;
+                background: rgba(208, 117, 47, 0.12);
+                color: var(--accent);
+                font-weight: 600;
+              }
+            </style>
+          </head>
+          <body>
+            <header>
+              <h1>Playeranalytics</h1>
+              <p>Player and combat analytics</p>
+              <nav class=\"nav\">
+                <a class=\"nav-link\" href=\"/\">Overview</a>
+                <a class=\"nav-link active\" href=\"/players\">Players</a>
+                <a class=\"nav-link\" href=\"/sessions\">Sessions</a>
+                <a class=\"nav-link\" href=\"/network\">Network</a>
+              </nav>
+            </header>
+            <main>
+              <section class=\"card card-half\">
+                <div class=\"pill\">Playtime Distribution</div>
+                <div style=\"position: relative; height: 220px;\">
+                  <canvas id=\"playtimeChart\"></canvas>
+                </div>
+              </section>
+              <section class=\"card card-half\">
+                <div class=\"pill\">Top Players by Kills</div>
+                <div style=\"position: relative; height: 220px;\">
+                  <canvas id=\"killsChart\"></canvas>
+                </div>
+              </section>
+              <section class=\"card card-full\">
+                <div class=\"pill\">Players</div>
+                <div class=\"table-controls\">
+                  <input type=\"text\" id=\"search-players\" class=\"search-input\" placeholder=\"Search players...\">
+                  <span id=\"search-players-count\" class=\"filter-badge\">0 results</span>
+                </div>
+                <table id=\"players-table\">
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Playtime</th>
+                      <th>Last seen</th>
+                      <th>Joins</th>
+                      <th>Leaves</th>
+                      <th>Kills</th>
+                      <th>Deaths</th>
+                      <th>K/D</th>
+                    </tr>
+                  </thead>
+                  <tbody id=\"players-body\"></tbody>
+                </table>
+              </section>
+              <section class=\"card\">
+                <div class=\"pill\">Playtime Analysis</div>
+                <div class=\"table-controls\">
+                  <input type=\"text\" id=\"search-playtime\" class=\"search-input\" placeholder=\"Search playtime...\">
+                  <span id=\"search-playtime-count\" class=\"filter-badge\">0 results</span>
+                </div>
+                <table id=\"playtime-table\">
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Total Playtime</th>
+                      <th>Active Playtime</th>
+                      <th>AFK Time</th>
+                      <th>AFK Periods</th>
+                    </tr>
+                  </thead>
+                  <tbody id=\"playtime-body\"></tbody>
+                </table>
+              </section>
+              <section class=\"card card-full\">
+                <div class=\"pill\">Combat Statistics</div>
+                <div class=\"table-controls\">
+                  <input type=\"text\" id=\"search-combat\" class=\"search-input\" placeholder=\"Search combat stats...\">
+                  <span id=\"search-combat-count\" class=\"filter-badge\">0 results</span>
+                </div>
+                <table id=\"combat-table\">
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Total Kills</th>
+                      <th>PvP Kills</th>
+                      <th>PvE Kills</th>
+                      <th>PvP Ratio</th>
+                      <th>Deaths</th>
+                      <th>K/D Ratio</th>
+                      <th>Kill Streak</th>
+                      <th>Max Streak</th>
+                    </tr>
+                  </thead>
+                  <tbody id=\"combat-body\"></tbody>
+                </table>
+              </section>
+              <section class=\"card card-half\">
+                <div class=\"pill\">Weapon Usage</div>
+                <div style=\"position: relative; height: 250px;\">
+                  <canvas id=\"weaponChart\"></canvas>
+                </div>
+              </section>
+              <section class=\"card card-half\">
+                <div class=\"pill\">Top Kill Streaks</div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Current</th>
+                      <th>Record</th>
+                    </tr>
+                  </thead>
+                  <tbody id=\"streaks-body\"></tbody>
+                </table>
+              </section>
+              <section class=\"card\">
+                <div class=\"pill\">Kill Details</div>
+                <div class=\"table-controls\">
+                  <input type=\"text\" id=\"search-kills\" class=\"search-input\" placeholder=\"Search kills...\">
+                  <span id=\"search-kills-count\" class=\"filter-badge\">0 results</span>
+                </div>
+                <table id=\"kills-table\">
+                  <thead>
+                    <tr>
+                      <th>Killer</th>
+                      <th>Victim</th>
+                      <th>Count</th>
+                      <th>Last Kill (UTC)</th>
+                    </tr>
+                  </thead>
+                  <tbody id=\"kills-body\"></tbody>
+                </table>
+              </section>
+              <section class=\"card card-full\">
+                <div class=\"pill\">Leaderboards</div>
+                <div style=\"display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));\">
+                  <div>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">Most Active (Playtime)</h3>
+                    <table style=\"margin-top: 8px;\">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Player</th>
+                          <th>Time</th>
+                        </tr>
+                      </thead>
+                      <tbody id=\"leaderboard-playtime\"></tbody>
+                    </table>
+                  </div>
+                  <div>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">Highest K/D Ratio</h3>
+                    <table style=\"margin-top: 8px;\">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Player</th>
+                          <th>K/D</th>
+                        </tr>
+                      </thead>
+                      <tbody id=\"leaderboard-kd\"></tbody>
+                    </table>
+                  </div>
+                  <div>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">Longest Kill Streak</h3>
+                    <table style=\"margin-top: 8px;\">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Player</th>
+                          <th>Streak</th>
+                        </tr>
+                      </thead>
+                      <tbody id=\"leaderboard-streak\"></tbody>
+                    </table>
+                  </div>
+                  <div>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">Total Kills</h3>
+                    <table style=\"margin-top: 8px;\">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Player</th>
+                          <th>Kills</th>
+                        </tr>
+                      </thead>
+                      <tbody id=\"leaderboard-kills\"></tbody>
+                    </table>
+                  </div>
+                  <div>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">PvP Kills</h3>
+                    <table style=\"margin-top: 8px;\">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Player</th>
+                          <th>PvP</th>
+                        </tr>
+                      </thead>
+                      <tbody id=\"leaderboard-pvp\"></tbody>
+                    </table>
+                  </div>
+                  <div>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">Most Sessions</h3>
+                    <table style=\"margin-top: 8px;\">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Player</th>
+                          <th>Sessions</th>
+                        </tr>
+                      </thead>
+                      <tbody id=\"leaderboard-sessions\"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </section>
+            </main>
+            <script>
+              function makeTableSortable(tableId) {
+                const table = document.getElementById(tableId);
+                if (!table) return;
+                const tbody = table.querySelector('tbody');
+                const thead = table.querySelector('thead');
+                if (!thead || !tbody) return;
+                const headers = thead.querySelectorAll('th');
+                headers.forEach((header, index) => {
+                  if (header.textContent.trim() === '#') return;
+                  header.classList.add('sortable');
+                  header.dataset.column = index;
+                  header.dataset.order = 'none';
+                  header.addEventListener('click', () => {
+                    const rows = Array.from(tbody.querySelectorAll('tr'));
+                    const currentOrder = header.dataset.order;
+                    const newOrder = currentOrder === 'asc' ? 'desc' : 'asc';
+                    headers.forEach(h => {
+                      h.classList.remove('asc', 'desc');
+                      if (h !== header) h.dataset.order = 'none';
+                    });
+                    header.classList.add(newOrder);
+                    header.dataset.order = newOrder;
+                    rows.sort((a, b) => {
+                      const aCell = a.cells[index];
+                      const bCell = b.cells[index];
+                      if (!aCell || !bCell) return 0;
+                      let aValue = aCell.textContent.trim();
+                      let bValue = bCell.textContent.trim();
+                      const aNum = parseFloat(aValue.replace(/[^0-9.-]/g, ''));
+                      const bNum = parseFloat(bValue.replace(/[^0-9.-]/g, ''));
+                      if (!isNaN(aNum) && !isNaN(bNum)) {
+                        return newOrder === 'asc' ? aNum - bNum : bNum - aNum;
+                      }
+                      return newOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+                    });
+                    rows.forEach(row => tbody.appendChild(row));
+                  });
+                });
+              }
+
+              function addTableSearch(tableId, searchInputId) {
+                const table = document.getElementById(tableId);
+                const searchInput = document.getElementById(searchInputId);
+                if (!table || !searchInput) return;
+                const tbody = table.querySelector('tbody');
+                if (!tbody) return;
+                searchInput.addEventListener('input', (e) => {
+                  const searchTerm = e.target.value.toLowerCase();
+                  const rows = tbody.querySelectorAll('tr');
+                  let visibleCount = 0;
+                  rows.forEach(row => {
+                    const text = row.textContent.toLowerCase();
+                    if (text.includes(searchTerm)) {
+                      row.style.display = '';
+                      visibleCount++;
+                    } else {
+                      row.style.display = 'none';
+                    }
+                  });
+                  const badge = document.getElementById(`${searchInputId}-count`);
+                  if (badge) {
+                    badge.textContent = `${visibleCount} results`;
+                  }
+                });
+              }
+
+              async function loadPlayers() {
+                const res = await fetch("/api/players?limit=50");
+                const data = await res.json();
+                const body = document.getElementById("players-body");
+                body.innerHTML = "";
+                data.forEach(player => {
+                  const row = document.createElement("tr");
+                  const playtimeHours = Math.floor(player.totalPlaytimeSeconds / 3600);
+                  const playtimeMinutes = Math.floor((player.totalPlaytimeSeconds % 3600) / 60);
+                  const playtimeDisplay = `${playtimeHours}h ${playtimeMinutes}m`;
+                  const playerLink = `<a href="/player/${player.playerUuid}" style="color: var(--accent); text-decoration: none;">${player.playerName}</a>`;
+                  row.innerHTML = `<td>${playerLink}</td><td>${playtimeDisplay}</td><td>${player.lastSeen ?? "-"}</td><td>${player.joins}</td><td>${player.leaves}</td><td>${player.kills}</td><td>${player.deaths}</td><td>${player.kdRatio}</td>`;
+                  body.appendChild(row);
+                });
+              }
+
+              async function loadPlaytimeDetails() {
+                const res = await fetch("/api/playtime");
+                const data = await res.json();
+                const body = document.getElementById("playtime-body");
+                body.innerHTML = "";
+                data.forEach(player => {
+                  const row = document.createElement("tr");
+                  const totalHours = Math.floor(player.totalPlaytimeSeconds / 3600);
+                  const totalMinutes = Math.floor((player.totalPlaytimeSeconds % 3600) / 60);
+                  const activeHours = Math.floor(player.activePlaytimeSeconds / 3600);
+                  const activeMinutes = Math.floor((player.activePlaytimeSeconds % 3600) / 60);
+                  const afkHours = Math.floor(player.totalAfkSeconds / 3600);
+                  const afkMinutes = Math.floor((player.totalAfkSeconds % 3600) / 60);
+                  const totalDisplay = `${totalHours}h ${totalMinutes}m`;
+                  const activeDisplay = `${activeHours}h ${activeMinutes}m`;
+                  const afkDisplay = `${afkHours}h ${afkMinutes}m`;
+                  row.innerHTML = `<td>${player.playerName}</td><td>${totalDisplay}</td><td>${activeDisplay}</td><td>${afkDisplay}</td><td>${player.afkPeriods}</td>`;
+                  body.appendChild(row);
+                });
+              }
+
+              async function loadKills() {
+                const res = await fetch("/api/kills?limit=50");
+                const data = await res.json();
+                const body = document.getElementById("kills-body");
+                body.innerHTML = "";
+                data.forEach(kill => {
+                  const row = document.createElement("tr");
+                  const victimDisplay = kill.victimName ? `${kill.victimName} (${kill.victimType})` : kill.victimType;
+                  row.innerHTML = `<td>${kill.killerName}</td><td>${victimDisplay}</td><td>${kill.killCount}</td><td>${kill.lastKillTime}</td>`;
+                  body.appendChild(row);
+                });
+              }
+
+              async function loadPlaytimeChart() {
+                const res = await fetch("/api/playtime");
+                const data = await res.json();
+                if (data.length === 0) return;
+                const topPlayers = data.sort((a, b) => b.totalPlaytimeSeconds - a.totalPlaytimeSeconds).slice(0, 5);
+                const ctx = document.getElementById("playtimeChart").getContext("2d");
+                new Chart(ctx, {
+                  type: "pie",
+                  data: {
+                    labels: topPlayers.map(p => p.playerName),
+                    datasets: [{
+                      data: topPlayers.map(p => Math.floor(p.totalPlaytimeSeconds / 60)),
+                      backgroundColor: ["#FF6384", "#36A2EB", "#FFCE56", "#4BC0C0", "#FF9F40"],
+                      borderColor: "#ffffff",
+                      borderWidth: 2
+                    }]
+                  },
+                  options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }
+                });
+              }
+
+              async function loadKillsChart() {
+                const res = await fetch("/api/players?limit=10");
+                const data = await res.json();
+                if (data.length === 0) return;
+                const topKillers = data.sort((a, b) => b.kills - a.kills).slice(0, 5);
+                const ctx = document.getElementById("killsChart").getContext("2d");
+                new Chart(ctx, {
+                  type: "bar",
+                  data: {
+                    labels: topKillers.map(p => p.playerName),
+                    datasets: [{ label: "Kills", data: topKillers.map(p => p.kills), backgroundColor: "#36A2EB", borderColor: "#36A2EB", borderWidth: 1 }]
+                  },
+                  options: { responsive: true, maintainAspectRatio: false, indexAxis: "y", plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } }
+                });
+              }
+
+              async function loadCombatStats() {
+                const res = await fetch("/api/combat");
+                const data = await res.json();
+                const body = document.getElementById("combat-body");
+                body.innerHTML = "";
+                data.forEach(player => {
+                  const row = document.createElement("tr");
+                  row.innerHTML = `<td>${player.player_name}</td><td>${player.total_kills}</td><td>${player.pvp_kills}</td><td>${player.pve_kills}</td><td>${player.pvp_ratio}%</td><td>${player.deaths}</td><td>${player.kd_ratio}</td><td>${player.kill_streak}</td><td>${player.max_kill_streak}</td>`;
+                  body.appendChild(row);
+                });
+
+                const streaksBody = document.getElementById("streaks-body");
+                streaksBody.innerHTML = "";
+                const topStreaks = data.sort((a, b) => b.max_kill_streak - a.max_kill_streak).slice(0, 10);
+                topStreaks.forEach(player => {
+                  const row = document.createElement("tr");
+                  row.innerHTML = `<td>${player.player_name}</td><td>${player.kill_streak}</td><td>${player.max_kill_streak}</td>`;
+                  streaksBody.appendChild(row);
+                });
+              }
+
+              async function loadWeaponChart() {
+                const res = await fetch("/api/weapons");
+                const data = await res.json();
+                if (data.length === 0) return;
+                const weaponMap = {};
+                data.forEach(w => {
+                  if (!weaponMap[w.weapon]) weaponMap[w.weapon] = 0;
+                  weaponMap[w.weapon] += w.kills;
+                });
+                const sortedWeapons = Object.entries(weaponMap).sort((a, b) => b[1] - a[1]).slice(0, 10);
+                const ctx = document.getElementById("weaponChart").getContext("2d");
+                new Chart(ctx, {
+                  type: "bar",
+                  data: {
+                    labels: sortedWeapons.map(w => w[0]),
+                    datasets: [{ label: "Kills", data: sortedWeapons.map(w => w[1]), backgroundColor: "#FF6384", borderColor: "#FF6384", borderWidth: 1 }]
+                  },
+                  options: { responsive: true, maintainAspectRatio: false, indexAxis: "y", plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+                });
+              }
+
+              async function loadLeaderboards() {
+                const types = [
+                  { type: 'playtime', id: 'leaderboard-playtime', formatter: (val) => {
+                    const hours = Math.floor(val / 3600);
+                    const minutes = Math.floor((val % 3600) / 60);
+                    return `${hours}h ${minutes}m`;
+                  }},
+                  { type: 'kd_ratio', id: 'leaderboard-kd', formatter: (val) => val.toFixed(2) },
+                  { type: 'kill_streak', id: 'leaderboard-streak', formatter: (val) => val },
+                  { type: 'total_kills', id: 'leaderboard-kills', formatter: (val) => val },
+                  { type: 'pvp_kills', id: 'leaderboard-pvp', formatter: (val) => val },
+                  { type: 'sessions', id: 'leaderboard-sessions', formatter: (val) => val }
+                ];
+                for (const leaderboard of types) {
+                  const res = await fetch(`/api/leaderboard/${leaderboard.type}?limit=10`);
+                  const data = await res.json();
+                  const tbody = document.getElementById(leaderboard.id);
+                  tbody.innerHTML = "";
+                  data.forEach(entry => {
+                    if (entry.error) return;
+                    const row = document.createElement("tr");
+                    const rankStyle = entry.rank === 1 ? 'color: #FFD700; font-weight: bold;' :
+                                     entry.rank === 2 ? 'color: #C0C0C0; font-weight: bold;' :
+                                     entry.rank === 3 ? 'color: #CD7F32; font-weight: bold;' : '';
+                    const playerLink = `<a href="/player/${entry.player_uuid}" style="color: var(--accent); text-decoration: none;">${entry.player_name}</a>`;
+                    row.innerHTML = `<td style="${rankStyle}">${entry.rank}</td><td>${playerLink}</td><td>${leaderboard.formatter(entry.value)}</td>`;
+                    tbody.appendChild(row);
+                  });
+                }
+              }
+
+              async function refreshAll() {
+                await Promise.all([
+                  loadPlayers(),
+                  loadPlaytimeDetails(),
+                  loadCombatStats(),
+                  loadKills(),
+                  loadPlaytimeChart(),
+                  loadKillsChart(),
+                  loadWeaponChart(),
+                  loadLeaderboards()
+                ]);
+              }
+
+              async function initTables() {
+                await refreshAll();
+                makeTableSortable('players-table');
+                makeTableSortable('playtime-table');
+                makeTableSortable('combat-table');
+                makeTableSortable('kills-table');
+                addTableSearch('players-table', 'search-players');
+                addTableSearch('playtime-table', 'search-playtime');
+                addTableSearch('combat-table', 'search-combat');
+                addTableSearch('kills-table', 'search-kills');
+                ['players', 'playtime', 'combat', 'kills'].forEach(name => {
+                  const table = document.getElementById(`${name}-table`);
+                  const badge = document.getElementById(`search-${name}-count`);
+                  if (table && badge) {
+                    const rows = table.querySelectorAll('tbody tr');
+                    badge.textContent = `${rows.length} results`;
+                  }
+                });
+              }
+
+              initTables();
+              setInterval(refreshAll, 8000);
+            </script>
+          </body>
+        </html>
+        """;
+
+    private static final String SESSIONS_HTML = """
+        <!doctype html>
+        <html lang=\"en\">
+          <head>
+            <meta charset=\"utf-8\" />
+            <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+            <title>Sessions - Playeranalytics</title>
+            <script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>
+            <style>
+              :root {
+                color-scheme: light;
+                --bg: #f6f4ef;
+                --ink: #1f1d1a;
+                --muted: #6f655d;
+                --accent: #d0752f;
+                --card: #ffffff;
+                --line: #e4ddd4;
+              }
+              body {
+                margin: 0;
+                font-family: \"Space Grotesk\", \"IBM Plex Sans\", \"Segoe UI\", sans-serif;
+                background: radial-gradient(circle at top, #fff7ed 0%, var(--bg) 55%);
+                color: var(--ink);
+              }
+              header { padding: 32px 24px 12px; }
+              h1 { margin: 0 0 6px; font-size: 32px; letter-spacing: -0.02em; }
+              p { margin: 0; color: var(--muted); }
+              .nav { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+              .nav-link { text-decoration: none; color: var(--ink); padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: #fff; font-size: 14px; font-weight: 600; }
+              .nav-link.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+              main {
+                display: grid;
+                gap: 18px;
+                padding: 0 24px 32px;
+                grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+              }
+              .card-full { grid-column: 1 / -1; }
+              .card {
+                background: var(--card);
+                border: 1px solid var(--line);
+                border-radius: 16px;
+                padding: 16px;
+                box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
+              }
+              table { width: 100%; border-collapse: collapse; font-size: 14px; }
+              th, td { padding: 8px; border-bottom: 1px solid var(--line); text-align: left; }
+              th { color: var(--muted); font-weight: 600; }
+              th.sortable { cursor: pointer; user-select: none; position: relative; padding-right: 24px; }
+              th.sortable::after { content: '⇅'; position: absolute; right: 8px; opacity: 0.3; font-size: 12px; }
+              th.sortable.asc::after { content: '▲'; opacity: 1; color: var(--accent); }
+              th.sortable.desc::after { content: '▼'; opacity: 1; color: var(--accent); }
+              .table-controls { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+              .search-input { flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 14px; }
+              .search-input:focus { outline: none; border-color: var(--accent); }
+              .filter-badge { display: inline-block; padding: 4px 8px; background: rgba(208, 117, 47, 0.15); border-radius: 4px; font-size: 12px; color: var(--accent); }
+              .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: rgba(208, 117, 47, 0.12); color: var(--accent); font-weight: 600; }
+            </style>
+          </head>
+          <body>
+            <header>
+              <h1>Playeranalytics</h1>
+              <p>Session analytics and activity trends</p>
+              <nav class=\"nav\">
+                <a class=\"nav-link\" href=\"/\">Overview</a>
+                <a class=\"nav-link\" href=\"/players\">Players</a>
+                <a class=\"nav-link active\" href=\"/sessions\">Sessions</a>
+                <a class=\"nav-link\" href=\"/network\">Network</a>
+              </nav>
+            </header>
+            <main>
+              <section class=\"card card-full\">
+                <div class=\"pill\">Recent Sessions</div>
+                <div class=\"table-controls\">
+                  <input type=\"text\" id=\"search-sessions\" class=\"search-input\" placeholder=\"Search sessions...\">
+                  <span id=\"search-sessions-count\" class=\"filter-badge\">0 results</span>
+                </div>
+                <table id=\"sessions-table\">
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Duration</th>
+                      <th>Start (UTC)</th>
+                      <th>End (UTC)</th>
+                    </tr>
+                  </thead>
+                  <tbody id=\"sessions-body\"></tbody>
+                </table>
+              </section>
+              <section class=\"card\">
+                <div class=\"pill\">Session Insights</div>
+                <div style=\"font-size: 13px;\">
+                  <p>Total Sessions: <strong id=\"insights-total\">-</strong></p>
+                  <p>Avg Duration: <strong id=\"insights-avg\">-</strong></p>
+                  <p>Max Duration: <strong id=\"insights-max\">-</strong></p>
+                  <p>Min Duration: <strong id=\"insights-min\">-</strong></p>
+                </div>
+              </section>
+              <section class=\"card card-full\">
+                <div class=\"pill\">Activity Trends (Last 30 Days)</div>
+                <div style=\"position: relative; height: 300px;\">
+                  <canvas id=\"activityTrendsChart\"></canvas>
+                </div>
+              </section>
+              <section class=\"card card-full\">
+                <div class=\"pill\">Hourly Activity (Peak Hours)</div>
+                <div style=\"position: relative; height: 300px;\">
+                  <canvas id=\"hourlyActivityChart\"></canvas>
+                </div>
+              </section>
+            </main>
+            <script>
+              function makeTableSortable(tableId) {
+                const table = document.getElementById(tableId);
+                if (!table) return;
+                const tbody = table.querySelector('tbody');
+                const thead = table.querySelector('thead');
+                if (!thead || !tbody) return;
+                const headers = thead.querySelectorAll('th');
+                headers.forEach((header, index) => {
+                  header.classList.add('sortable');
+                  header.dataset.column = index;
+                  header.dataset.order = 'none';
+                  header.addEventListener('click', () => {
+                    const rows = Array.from(tbody.querySelectorAll('tr'));
+                    const currentOrder = header.dataset.order;
+                    const newOrder = currentOrder === 'asc' ? 'desc' : 'asc';
+                    headers.forEach(h => { h.classList.remove('asc', 'desc'); if (h !== header) h.dataset.order = 'none'; });
+                    header.classList.add(newOrder);
+                    header.dataset.order = newOrder;
+                    rows.sort((a, b) => {
+                      const aCell = a.cells[index];
+                      const bCell = b.cells[index];
+                      if (!aCell || !bCell) return 0;
+                      let aValue = aCell.textContent.trim();
+                      let bValue = bCell.textContent.trim();
+                      const aNum = parseFloat(aValue.replace(/[^0-9.-]/g, ''));
+                      const bNum = parseFloat(bValue.replace(/[^0-9.-]/g, ''));
+                      if (!isNaN(aNum) && !isNaN(bNum)) {
+                        return newOrder === 'asc' ? aNum - bNum : bNum - aNum;
+                      }
+                      return newOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+                    });
+                    rows.forEach(row => tbody.appendChild(row));
+                  });
+                });
+              }
+
+              function addTableSearch(tableId, searchInputId) {
+                const table = document.getElementById(tableId);
+                const searchInput = document.getElementById(searchInputId);
+                if (!table || !searchInput) return;
+                const tbody = table.querySelector('tbody');
+                if (!tbody) return;
+                searchInput.addEventListener('input', (e) => {
+                  const searchTerm = e.target.value.toLowerCase();
+                  const rows = tbody.querySelectorAll('tr');
+                  let visibleCount = 0;
+                  rows.forEach(row => {
+                    const text = row.textContent.toLowerCase();
+                    if (text.includes(searchTerm)) {
+                      row.style.display = '';
+                      visibleCount++;
+                    } else {
+                      row.style.display = 'none';
+                    }
+                  });
+                  const badge = document.getElementById(`${searchInputId}-count`);
+                  if (badge) badge.textContent = `${visibleCount} results`;
+                });
+              }
+
+              async function loadSessions() {
+                const res = await fetch("/api/sessions?limit=50");
+                const data = await res.json();
+                const body = document.getElementById("sessions-body");
+                body.innerHTML = "";
+                data.forEach(session => {
+                  const row = document.createElement("tr");
+                  const durationMinutes = Math.floor(session.durationSeconds / 60);
+                  const durationSeconds = session.durationSeconds % 60;
+                  const durationDisplay = `${durationMinutes}m ${durationSeconds}s`;
+                  row.innerHTML = `<td>${session.playerName}</td><td>${durationDisplay}</td><td>${session.sessionStart}</td><td>${session.sessionEnd}</td>`;
+                  body.appendChild(row);
+                });
+              }
+
+              async function loadSessionInsights() {
+                const res = await fetch("/api/sessions/insights");
+                const data = await res.json();
+                document.getElementById("insights-total").textContent = data.total_sessions || 0;
+                const avgMin = Math.floor((data.avg_duration_seconds || 0) / 60);
+                const avgSec = (data.avg_duration_seconds || 0) % 60;
+                document.getElementById("insights-avg").textContent = `${avgMin}m ${avgSec}s`;
+                const maxMin = Math.floor((data.max_duration_seconds || 0) / 60);
+                const maxSec = (data.max_duration_seconds || 0) % 60;
+                document.getElementById("insights-max").textContent = `${maxMin}m ${maxSec}s`;
+                const minMin = Math.floor((data.min_duration_seconds || 0) / 60);
+                const minSec = (data.min_duration_seconds || 0) % 60;
+                document.getElementById("insights-min").textContent = `${minMin}m ${minSec}s`;
+              }
+
+              async function loadActivityTrends() {
+                const res = await fetch("/api/activity/trends?limit=30");
+                const data = await res.json();
+                if (data.length === 0) return;
+                const reversed = data.reverse();
+                const ctx = document.getElementById("activityTrendsChart").getContext("2d");
+                new Chart(ctx, {
+                  type: "line",
+                  data: {
+                    labels: reversed.map(d => d.date),
+                    datasets: [
+                      { label: "Unique Players", data: reversed.map(d => d.unique_players), borderColor: "#36A2EB", backgroundColor: "rgba(54, 162, 235, 0.1)", borderWidth: 2, tension: 0.3 },
+                      { label: "Total Sessions", data: reversed.map(d => d.total_sessions), borderColor: "#FF6384", backgroundColor: "rgba(255, 99, 132, 0.1)", borderWidth: 2, tension: 0.3 }
+                    ]
+                  },
+                  options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "top" } }, scales: { y: { beginAtZero: true } } }
+                });
+              }
+
+              async function loadHourlyActivity() {
+                const res = await fetch("/api/activity/hourly");
+                const data = await res.json();
+                const hourlyData = Array(24).fill(0);
+                data.forEach(item => { hourlyData[item.hour] = item.joins; });
+                const ctx = document.getElementById("hourlyActivityChart").getContext("2d");
+                new Chart(ctx, {
+                  type: "bar",
+                  data: { labels: Array.from({length: 24}, (_, i) => `${i}:00`), datasets: [{ label: "Joins", data: hourlyData, backgroundColor: "#FFCE56", borderColor: "#FFCE56", borderWidth: 1 }] },
+                  options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+                });
+              }
+
+              async function refreshAll() {
+                await Promise.all([loadSessions(), loadSessionInsights(), loadActivityTrends(), loadHourlyActivity()]);
+              }
+
+              async function initTables() {
+                await refreshAll();
+                makeTableSortable('sessions-table');
+                addTableSearch('sessions-table', 'search-sessions');
+                const table = document.getElementById('sessions-table');
+                const badge = document.getElementById('search-sessions-count');
+                if (table && badge) {
+                  const rows = table.querySelectorAll('tbody tr');
+                  badge.textContent = `${rows.length} results`;
+                }
+              }
+
+              initTables();
+              setInterval(refreshAll, 8000);
+            </script>
+          </body>
+        </html>
+        """;
+
+    private static final String NETWORK_HTML_TEMPLATE = """
+        <!doctype html>
+        <html lang=\"en\">
+          <head>
+            <meta charset=\"utf-8\" />
+            <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+            <title>Network - Playeranalytics</title>
+            <style>
+              :root {
+                color-scheme: light;
+                --bg: #f6f4ef;
+                --ink: #1f1d1a;
+                --muted: #6f655d;
+                --accent: #d0752f;
+                --card: #ffffff;
+                --line: #e4ddd4;
+              }
+              body { margin: 0; font-family: \"Space Grotesk\", \"IBM Plex Sans\", \"Segoe UI\", sans-serif; background: radial-gradient(circle at top, #fff7ed 0%, var(--bg) 55%); color: var(--ink); }
+              header { padding: 32px 24px 12px; }
+              h1 { margin: 0 0 6px; font-size: 32px; letter-spacing: -0.02em; }
+              p { margin: 0; color: var(--muted); }
+              .nav { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+              .nav-link { text-decoration: none; color: var(--ink); padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: #fff; font-size: 14px; font-weight: 600; }
+              .nav-link.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+              main { display: grid; gap: 18px; padding: 0 24px 32px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+              .card-full { grid-column: 1 / -1; }
+              .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08); }
+              .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: rgba(208, 117, 47, 0.12); color: var(--accent); font-weight: 600; }
+              .overview-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 16px; }
+              .overview-metric { background: rgba(208, 117, 47, 0.08); border-radius: 12px; padding: 16px; }
+              .overview-metric-label { font-size: 12px; opacity: 0.8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+              .overview-metric-value { font-size: 28px; font-weight: 700; line-height: 1; }
+              table { width: 100%; border-collapse: collapse; font-size: 14px; }
+              th, td { padding: 8px; border-bottom: 1px solid var(--line); text-align: left; }
+              th { color: var(--muted); font-weight: 600; }
+              .network-controls { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+              .network-input { flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 14px; }
+              .network-button { padding: 8px 12px; border-radius: 6px; border: none; background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
+            </style>
+          </head>
+          <body>
+            <header>
+              <h1>Playeranalytics</h1>
+              <p>Network overview</p>
+              <nav class=\"nav\">
+                <a class=\"nav-link\" href=\"/\">Overview</a>
+                <a class=\"nav-link\" href=\"/players\">Players</a>
+                <a class=\"nav-link\" href=\"/sessions\">Sessions</a>
+                <a class=\"nav-link active\" href=\"/network\">Network</a>
+              </nav>
+            </header>
+            <main>
+              <section class=\"card card-full\">
+                <div class=\"pill\">Network Stats</div>
+                <div class=\"network-controls\">
+                  <input id=\"network-name\" class=\"network-input\" value=\"{NETWORK_NAME}\" placeholder=\"Network name\" />
+                  <button class=\"network-button\" id=\"network-load\">Load</button>
+                </div>
+                <div class=\"overview-grid\">
+                  <div class=\"overview-metric\">
+                    <div class=\"overview-metric-label\">Servers</div>
+                    <div class=\"overview-metric-value\" id=\"network-servers\">0</div>
+                  </div>
+                  <div class=\"overview-metric\">
+                    <div class=\"overview-metric-label\">Unique Players</div>
+                    <div class=\"overview-metric-value\" id=\"network-players\">0</div>
+                  </div>
+                  <div class=\"overview-metric\">
+                    <div class=\"overview-metric-label\">Total Transfers</div>
+                    <div class=\"overview-metric-value\" id=\"network-transfers\">0</div>
+                  </div>
+                </div>
+              </section>
+              <section class=\"card card-full\">
+                <div class=\"pill\">Server Comparison</div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Server</th>
+                      <th>Unique Players</th>
+                      <th>Current Players</th>
+                      <th>Total Visits</th>
+                    </tr>
+                  </thead>
+                  <tbody id=\"network-servers-body\"></tbody>
+                </table>
+              </section>
+            </main>
+            <script>
+              function getNetworkName() {
+                const input = document.getElementById("network-name");
+                return input && input.value.trim() ? input.value.trim() : "{NETWORK_NAME}";
+              }
+
+              async function loadNetwork() {
+                const networkName = getNetworkName();
+                const statsRes = await fetch(`/api/network/stats/${encodeURIComponent(networkName)}`);
+                const stats = await statsRes.json();
+                document.getElementById("network-servers").textContent = stats.serverCount || 0;
+                document.getElementById("network-players").textContent = stats.uniquePlayers || 0;
+                document.getElementById("network-transfers").textContent = stats.totalTransfers || 0;
+
+                const tableBody = document.getElementById("network-servers-body");
+                tableBody.innerHTML = "";
+                const compareRes = await fetch(`/api/network/comparison/${encodeURIComponent(networkName)}`);
+                const compare = await compareRes.json();
+                compare.forEach(server => {
+                  const row = document.createElement("tr");
+                  row.innerHTML = `<td>${server.serverName}</td><td>${server.uniquePlayers}</td><td>${server.currentPlayers}</td><td>${server.totalVisits}</td>`;
+                  tableBody.appendChild(row);
+                });
+              }
+
+              document.getElementById("network-load").addEventListener("click", loadNetwork);
+              loadNetwork();
             </script>
           </body>
         </html>

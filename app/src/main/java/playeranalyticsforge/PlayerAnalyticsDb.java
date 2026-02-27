@@ -13,6 +13,10 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -718,6 +722,15 @@ public final class PlayerAnalyticsDb {
                         "UNIQUE(player_uuid, cause_type)" +
                     ")"
                 );
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS death_events (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "player_uuid TEXT NOT NULL, " +
+                        "player_name TEXT NOT NULL, " +
+                        "cause_type TEXT NOT NULL, " +
+                        "death_time_utc TEXT NOT NULL" +
+                    ")"
+                );
                 
                 statement.executeUpdate(
                     "CREATE TABLE IF NOT EXISTS player_kill_matrix (" +
@@ -736,6 +749,9 @@ public final class PlayerAnalyticsDb {
                 
                 statement.executeUpdate(
                     "CREATE INDEX IF NOT EXISTS idx_death_cause_player ON death_causes(player_uuid)"
+                );
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_death_events_time ON death_events(death_time_utc)"
                 );
                 
                 statement.executeUpdate(
@@ -1179,6 +1195,15 @@ public final class PlayerAnalyticsDb {
                     stmt.setString(3, java.time.Instant.now().toString());
                     stmt.executeUpdate();
                 }
+
+                String eventSql = "INSERT INTO death_events (player_uuid, player_name, cause_type, death_time_utc) VALUES (?, ?, ?, ?)";
+                try (PreparedStatement eventStmt = conn.prepareStatement(eventSql)) {
+                    eventStmt.setString(1, playerUuid);
+                    eventStmt.setString(2, playerName);
+                    eventStmt.setString(3, causeType);
+                    eventStmt.setString(4, java.time.Instant.now().toString());
+                    eventStmt.executeUpdate();
+                }
             } catch (SQLException ex) {
                 PlayeranalyticsForgeMod.LOGGER.error("Failed to record death cause", ex);
             }
@@ -1489,6 +1514,79 @@ public final class PlayerAnalyticsDb {
                 return json.toString();
             } catch (SQLException ex) {
                 PlayeranalyticsForgeMod.LOGGER.error("Failed to get activity trends", ex);
+                return "[]";
+            }
+        }
+    }
+
+    public static String getCombatTrendsJson(int days) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                int safeDays = Math.max(1, Math.min(days, 365));
+
+                LocalDate today = LocalDate.now(ZoneOffset.UTC);
+                LocalDate startDate = today.minusDays(safeDays - 1L);
+                Map<String, int[]> counts = new LinkedHashMap<>();
+                for (int i = 0; i < safeDays; i++) {
+                    String date = startDate.plusDays(i).toString();
+                    counts.put(date, new int[]{0, 0});
+                }
+
+                String killSql = "SELECT substr(kill_time_utc, 1, 10) AS day, COUNT(*) AS kills " +
+                    "FROM world_kills WHERE substr(kill_time_utc, 1, 10) >= ? " +
+                    "GROUP BY day";
+                try (PreparedStatement stmt = conn.prepareStatement(killSql)) {
+                    stmt.setString(1, startDate.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        while (rs.next()) {
+                            String day = rs.getString("day");
+                            int kills = rs.getInt("kills");
+                            int[] entry = counts.get(day);
+                            if (entry != null) {
+                                entry[0] = kills;
+                            }
+                        }
+                    }
+                }
+
+                String deathSql = "SELECT substr(death_time_utc, 1, 10) AS day, COUNT(*) AS deaths " +
+                    "FROM death_events WHERE substr(death_time_utc, 1, 10) >= ? " +
+                    "GROUP BY day";
+                try (PreparedStatement stmt = conn.prepareStatement(deathSql)) {
+                    stmt.setString(1, startDate.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        while (rs.next()) {
+                            String day = rs.getString("day");
+                            int deaths = rs.getInt("deaths");
+                            int[] entry = counts.get(day);
+                            if (entry != null) {
+                                entry[1] = deaths;
+                            }
+                        }
+                    }
+                }
+
+                StringBuilder json = new StringBuilder("[");
+                boolean first = true;
+                for (Map.Entry<String, int[]> entry : counts.entrySet()) {
+                    if (!first) {
+                        json.append(",");
+                    }
+                    first = false;
+                    int[] values = entry.getValue();
+                    json.append("{\"date\":\"")
+                        .append(entry.getKey())
+                        .append("\",\"kills\":")
+                        .append(values[0])
+                        .append(",\"deaths\":")
+                        .append(values[1])
+                        .append("}");
+                }
+                json.append("]");
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get combat trends", ex);
                 return "[]";
             }
         }
