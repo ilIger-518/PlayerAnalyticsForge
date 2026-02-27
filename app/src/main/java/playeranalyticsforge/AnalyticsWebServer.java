@@ -49,6 +49,7 @@ public final class AnalyticsWebServer {
             server.createContext("/players", new PlayersPageHandler());
             server.createContext("/sessions", new SessionsPageHandler());
             server.createContext("/network", new NetworkPageHandler());
+            server.createContext("/connections", new ConnectionsPageHandler());
             server.createContext("/api/summary", exchange -> handleJson(exchange, PlayerAnalyticsDb.getSummaryJson()));
             server.createContext("/api/events", exchange -> handleJson(exchange, PlayerAnalyticsDb.getRecentEventsJson(readLimit(exchange))));
             server.createContext("/api/players", exchange -> handleJson(exchange, PlayerAnalyticsDb.getPlayersJson(readLimit(exchange))));
@@ -71,6 +72,13 @@ public final class AnalyticsWebServer {
             server.createContext("/api/network/stats/", new NetworkStatsHandler());
             server.createContext("/api/network/comparison/", new ServerComparisonHandler());
             server.createContext("/api/player/servers/", new PlayerServerHistoryHandler());
+            server.createContext("/api/player/connections/", new PlayerConnectionsHandler());
+            server.createContext("/api/player/ping/", new PlayerPingHandler());
+            server.createContext("/api/player/username-history/", new UsernameHistoryHandler());
+            server.createContext("/api/player/connection-stats/", new ConnectionStatsHandler());
+            server.createContext("/api/player/connection-quality/", new ConnectionQualityHandler());
+            server.createContext("/api/geo/stats", new GeoStatsHandler());
+            server.createContext("/api/geo/ping-stats", new GeoPingStatsHandler());
             server.createContext("/api/leaderboard/", new LeaderboardHandler());
             server.createContext("/api/player/", new PlayerHandler());
             server.createContext("/api/churn/analysis", exchange -> handleJson(exchange, PlayerAnalyticsDb.getChurnAnalysisJson()));
@@ -130,6 +138,20 @@ public final class AnalyticsWebServer {
           return defaultDays;
         }
       }
+
+        private static int readIntParam(HttpExchange exchange, String key, int defaultValue, int min, int max) {
+          Map<String, String> params = parseQuery(exchange.getRequestURI());
+          String value = params.get(key);
+          if (value == null) {
+            return defaultValue;
+          }
+          try {
+            int parsed = Integer.parseInt(value);
+            return Math.max(min, Math.min(parsed, max));
+          } catch (NumberFormatException ex) {
+            return defaultValue;
+          }
+        }
 
     private static Map<String, String> parseQuery(URI uri) {
         Map<String, String> params = new HashMap<>();
@@ -469,6 +491,7 @@ public final class AnalyticsWebServer {
                 <a class=\"nav-link\" href=\"/players\">Players</a>
                 <a class=\"nav-link\" href=\"/sessions\">Sessions</a>
                 <a class=\"nav-link\" href=\"/network\">Network</a>
+                              <a class=\"nav-link\" href=\"/connections\">Connections</a>
               </nav>
             </header>
             <main>
@@ -1638,6 +1661,517 @@ public final class AnalyticsWebServer {
         </html>
         """;
 
+    private static final String CONNECTIONS_HTML = """
+        <!doctype html>
+        <html lang=\"en\">
+          <head>
+            <meta charset=\"utf-8\" />
+            <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+            <title>Connections - Playeranalytics</title>
+            <script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>
+            <style>
+              :root {
+                color-scheme: light;
+                --bg: #f6f4ef;
+                --ink: #1f1d1a;
+                --muted: #6f655d;
+                --accent: #d0752f;
+                --card: #ffffff;
+                --line: #e4ddd4;
+              }
+              body {
+                margin: 0;
+                font-family: \"Space Grotesk\", \"IBM Plex Sans\", \"Segoe UI\", sans-serif;
+                background: radial-gradient(circle at top, #fff7ed 0%, var(--bg) 55%);
+                color: var(--ink);
+              }
+              header {
+                padding: 32px 24px 12px;
+              }
+              h1 {
+                margin: 0 0 6px;
+                font-size: 32px;
+                letter-spacing: -0.02em;
+              }
+              p {
+                margin: 0;
+                color: var(--muted);
+              }
+              .nav {
+                display: flex;
+                gap: 12px;
+                flex-wrap: wrap;
+                margin-top: 14px;
+              }
+              .nav-link {
+                text-decoration: none;
+                color: var(--ink);
+                padding: 6px 12px;
+                border-radius: 999px;
+                border: 1px solid var(--line);
+                background: #fff;
+                font-size: 14px;
+                font-weight: 600;
+              }
+              .nav-link.active {
+                background: var(--accent);
+                border-color: var(--accent);
+                color: #fff;
+              }
+              main {
+                display: grid;
+                gap: 18px;
+                padding: 0 24px 32px;
+                grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+              }
+              .card {
+                background: var(--card);
+                border: 1px solid var(--line);
+                border-radius: 16px;
+                padding: 16px;
+                box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
+              }
+              .card-full {
+                grid-column: 1 / -1;
+              }
+              .card-half {
+                grid-column: span 1;
+              }
+              @media (max-width: 1200px) {
+                .card-half {
+                  grid-column: 1 / -1;
+                }
+              }
+              .pill {
+                padding: 4px 10px;
+                background: linear-gradient(135deg, #fbbf24, var(--accent));
+                color: white;
+                font-weight: 600;
+                border-radius: 999px;
+                font-size: 12px;
+                text-transform: uppercase;
+                letter-spacing: 0.03em;
+                display: inline-block;
+                margin-bottom: 12px;
+              }
+              .stat {
+                font-size: 26px;
+                font-weight: 600;
+                margin-top: 8px;
+              }
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 14px;
+              }
+              th, td {
+                padding: 8px;
+                border-bottom: 1px solid var(--line);
+                text-align: left;
+              }
+              th {
+                color: var(--muted);
+                font-weight: 600;
+              }
+              .quality-badge {
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-weight: 600;
+                font-size: 12px;
+              }
+              .quality-excellent { background: #10b981; color: white; }
+              .quality-good { background: #3b82f6; color: white; }
+              .quality-fair { background: #f59e0b; color: white; }
+              .quality-poor { background: #ef4444; color: white; }
+              .filters {
+                display: flex;
+                gap: 12px;
+                flex-wrap: wrap;
+                align-items: center;
+              }
+              .filter-control {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                font-size: 12px;
+                color: var(--muted);
+              }
+              .filter-control select,
+              .filter-control input {
+                border: 1px solid var(--line);
+                border-radius: 8px;
+                padding: 6px 8px;
+                font-size: 14px;
+                font-family: inherit;
+              }
+              .filter-button {
+                background: var(--accent);
+                color: white;
+                border: none;
+                border-radius: 999px;
+                padding: 8px 14px;
+                font-weight: 600;
+                cursor: pointer;
+              }
+            </style>
+          </head>
+          <body>
+            <header>
+              <h1>Playeranalytics</h1>
+              <p>Connection and geographic analytics</p>
+              <nav class=\"nav\">
+                <a class=\"nav-link\" href=\"/\">Overview</a>
+                <a class=\"nav-link\" href=\"/players\">Players</a>
+                <a class=\"nav-link\" href=\"/sessions\">Sessions</a>
+                <a class=\"nav-link\" href=\"/network\">Network</a>
+                <a class=\"nav-link active\" href=\"/connections\">Connections</a>
+              </nav>
+            </header>
+            <main>
+              <section class=\"card card-full\">
+                <div class=\"pill\">Filters</div>
+                <div class=\"filters\">
+                  <label class=\"filter-control\">Range
+                    <select id=\"filter-days\">
+                      <option value=\"7\">Last 7 days</option>
+                      <option value=\"30\" selected>Last 30 days</option>
+                      <option value=\"90\">Last 90 days</option>
+                      <option value=\"365\">Last 365 days</option>
+                      <option value=\"3650\">All time</option>
+                    </select>
+                  </label>
+                  <label class=\"filter-control\">Top countries
+                    <select id=\"filter-limit\">
+                      <option value=\"5\">Top 5</option>
+                      <option value=\"10\">Top 10</option>
+                      <option value=\"15\" selected>Top 15</option>
+                      <option value=\"25\">Top 25</option>
+                      <option value=\"50\">Top 50</option>
+                    </select>
+                  </label>
+                  <label class=\"filter-control\">Min connections
+                    <input id=\"filter-min-connections\" type=\"number\" min=\"1\" max=\"10000\" value=\"1\" />
+                  </label>
+                  <button id=\"apply-filters\" class=\"filter-button\">Apply</button>
+                </div>
+              </section>
+              <section class=\"card card-full\">
+                <div class=\"pill\">Geographic Distribution</div>
+                <div style=\"position: relative; height: 300px;\">
+                  <canvas id=\"geoChart\"></canvas>
+                </div>
+              </section>
+              <section class=\"card card-half\">
+                <div class=\"pill\">Connection Quality</div>
+                <div id=\"quality-stats\">
+                  <p style=\"color: var(--muted); font-size: 14px;\">Loading quality metrics...</p>
+                </div>
+              </section>
+              <section class=\"card card-half\">
+                <div class=\"pill\">Quality Distribution</div>
+                <div style=\"position: relative; height: 220px;\">
+                  <canvas id=\"qualityDistChart\"></canvas>
+                </div>
+              </section>
+              <section class=\"card card-half\">
+                <div class=\"pill\">Average Ping by Country</div>
+                <div style=\"position: relative; height: 220px;\">
+                  <canvas id=\"pingCountryChart\"></canvas>
+                </div>
+              </section>
+              <section class=\"card card-full\">
+                <div class=\"pill\">Recent Connections</div>
+                <table id=\"connections-table\">
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Country</th>
+                      <th>Region</th>
+                      <th>City</th>
+                      <th>IP Address</th>
+                      <th>Connected At</th>
+                    </tr>
+                  </thead>
+                  <tbody id=\"connections-body\">
+                    <tr><td colspan=\"6\">Loading connections...</td></tr>
+                  </tbody>
+                </table>
+              </section>
+            </main>
+            <script>
+              let geoChart;
+              let qualityDistChart;
+              let pingCountryChart;
+
+              function getFilterParams() {
+                const days = document.getElementById('filter-days').value;
+                const limit = document.getElementById('filter-limit').value;
+                const minConnections = document.getElementById('filter-min-connections').value;
+                const params = new URLSearchParams({
+                  days,
+                  limit,
+                  minConnections,
+                });
+                return params.toString();
+              }
+
+              function isWithinDays(timestamp, days) {
+                if (!timestamp) {
+                  return false;
+                }
+                const date = new Date(timestamp);
+                if (Number.isNaN(date.getTime())) {
+                  return false;
+                }
+                const cutoff = new Date();
+                cutoff.setDate(cutoff.getDate() - days);
+                return date >= cutoff;
+              }
+
+              function clearChart(containerId) {
+                const container = document.getElementById(containerId).parentElement;
+                container.innerHTML = `<canvas id=\"${containerId}\"></canvas>`;
+              }
+
+              async function loadGeoStats() {
+                try {
+                  const res = await fetch(`/api/geo/stats?${getFilterParams()}`);
+                  const data = await res.json();
+                  
+                  if (data.countries && data.countries.length > 0) {
+                    if (geoChart) {
+                      geoChart.destroy();
+                    }
+                    clearChart('geoChart');
+                    const ctx = document.getElementById('geoChart');
+                    geoChart = new Chart(ctx, {
+                      type: 'bar',
+                      data: {
+                        labels: data.countries.map(c => c.country || 'Unknown'),
+                        datasets: [{
+                          label: 'Total Connections',
+                          data: data.countries.map(c => c.connections),
+                          backgroundColor: '#d0752f',
+                        }, {
+                          label: 'Unique Players',
+                          data: data.countries.map(c => c.uniquePlayers),
+                          backgroundColor: '#fbbf24',
+                        }]
+                      },
+                      options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                          y: { beginAtZero: true }
+                        }
+                      }
+                    });
+                  } else {
+                    document.getElementById('geoChart').parentElement.innerHTML = '<p>No geographic data available</p>';
+                  }
+                } catch (err) {
+                  console.error('Failed to load geo stats:', err);
+                }
+              }
+
+              async function loadConnectionQuality() {
+                try {
+                  const days = parseInt(document.getElementById('filter-days').value, 10);
+                  const playersRes = await fetch('/api/players');
+                  const players = await playersRes.json();
+                  
+                  const qualityDiv = document.getElementById('quality-stats');
+                  qualityDiv.innerHTML = '';
+                  
+                  let loaded = 0;
+                  for (const player of players.slice(0, 10)) {
+                    try {
+                      const qualityRes = await fetch(`/api/player/connection-quality/${player.uuid}`);
+                      const quality = await qualityRes.json();
+                      
+                      if (quality.qualityScore !== undefined && isWithinDays(quality.recordedAt, days)) {
+                        loaded++;
+                        const score = Math.round(quality.qualityScore);
+                        let badge = 'quality-poor';
+                        if (score >= 80) badge = 'quality-excellent';
+                        else if (score >= 60) badge = 'quality-good';
+                        else if (score >= 40) badge = 'quality-fair';
+                        
+                        const div = document.createElement('div');
+                        div.style.cssText = 'padding: 8px; border-bottom: 1px solid var(--line);';
+                        div.innerHTML = `
+                          <div style=\"display: flex; justify-content: space-between; align-items: center;\">
+                            <span style=\"font-weight: 600;\">${player.name}</span>
+                            <span class=\"quality-badge ${badge}\">${score}/100</span>
+                          </div>
+                          <div style=\"font-size: 12px; color: var(--muted); margin-top: 4px;\">
+                            Avg Ping: ${Math.round(quality.avgPing)}ms | Variance: ${Math.round(quality.pingVariance)}ms²
+                          </div>
+                        `;
+                        qualityDiv.appendChild(div);
+                      }
+                    } catch (err) {
+                      console.error(`Failed to load quality for ${player.name}:`, err);
+                    }
+                  }
+                  
+                  if (loaded === 0) {
+                    qualityDiv.innerHTML = '<p style=\"color: var(--muted); font-size: 14px;\">No quality data available</p>';
+                  }
+                } catch (err) {
+                  console.error('Failed to load connection quality:', err);
+                }
+              }
+
+              async function loadQualityDistribution() {
+                try {
+                  const playersRes = await fetch('/api/players');
+                  const players = await playersRes.json();
+                  const buckets = [0, 0, 0, 0];
+                  const labelNames = ['0-39', '40-59', '60-79', '80-100'];
+                  const days = parseInt(document.getElementById('filter-days').value, 10);
+
+                  const sample = players.slice(0, 50);
+                  await Promise.all(sample.map(async (player) => {
+                    try {
+                      const qualityRes = await fetch(`/api/player/connection-quality/${player.uuid}`);
+                      const quality = await qualityRes.json();
+                      if (quality.qualityScore !== undefined && isWithinDays(quality.recordedAt, days)) {
+                        const score = Math.round(quality.qualityScore);
+                        if (score >= 80) buckets[3] += 1;
+                        else if (score >= 60) buckets[2] += 1;
+                        else if (score >= 40) buckets[1] += 1;
+                        else buckets[0] += 1;
+                      }
+                    } catch (err) {
+                      console.error(`Failed to load quality for ${player.name}:`, err);
+                    }
+                  }));
+
+                  if (qualityDistChart) {
+                    qualityDistChart.destroy();
+                  }
+                  clearChart('qualityDistChart');
+                  const ctx = document.getElementById('qualityDistChart');
+                  qualityDistChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                      labels: labelNames,
+                      datasets: [{
+                        label: 'Players',
+                        data: buckets,
+                        backgroundColor: ['#ef4444', '#f59e0b', '#3b82f6', '#10b981'],
+                      }]
+                    },
+                    options: {
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      scales: {
+                        y: { beginAtZero: true }
+                      }
+                    }
+                  });
+                } catch (err) {
+                  console.error('Failed to load quality distribution:', err);
+                }
+              }
+
+              async function loadPingByCountry() {
+                try {
+                  const res = await fetch(`/api/geo/ping-stats?${getFilterParams()}`);
+                  const data = await res.json();
+
+                  if (data.countries && data.countries.length > 0) {
+                    if (pingCountryChart) {
+                      pingCountryChart.destroy();
+                    }
+                    clearChart('pingCountryChart');
+                    const ctx = document.getElementById('pingCountryChart');
+                    pingCountryChart = new Chart(ctx, {
+                      type: 'bar',
+                      data: {
+                        labels: data.countries.map(c => c.country || 'Unknown'),
+                        datasets: [{
+                          label: 'Avg Ping (ms)',
+                          data: data.countries.map(c => c.avgPing),
+                          backgroundColor: '#3b82f6',
+                        }]
+                      },
+                      options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                          y: { beginAtZero: true }
+                        }
+                      }
+                    });
+                  } else {
+                    document.getElementById('pingCountryChart').parentElement.innerHTML = '<p>No ping data available</p>';
+                  }
+                } catch (err) {
+                  console.error('Failed to load ping by country:', err);
+                }
+              }
+
+              async function loadRecentConnections() {
+                try {
+                  const playersRes = await fetch('/api/players');
+                  const players = await playersRes.json();
+                  
+                  const tbody = document.getElementById('connections-body');
+                  tbody.innerHTML = '';
+                  
+                  let loaded = 0;
+                  for (const player of players.slice(0, 20)) {
+                    try {
+                      const connRes = await fetch(`/api/player/connections/${player.uuid}?limit=1`);
+                      const connections = await connRes.json();
+                      
+                      if (connections.length > 0) {
+                        loaded++;
+                        const conn = connections[0];
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                          <td>${player.name}</td>
+                          <td>${conn.country || '—'}</td>
+                          <td>${conn.region || '—'}</td>
+                          <td>${conn.city || '—'}</td>
+                          <td>${conn.joinAddress || '—'}</td>
+                          <td>${new Date(conn.joinTime).toLocaleString()}</td>
+                        `;
+                        tbody.appendChild(row);
+                      }
+                    } catch (err) {
+                      console.error(`Failed to load connections for ${player.name}:`, err);
+                    }
+                  }
+                  
+                  if (loaded === 0) {
+                    tbody.innerHTML = '<tr><td colspan=\"6\">No connection data available</td></tr>';
+                  }
+                } catch (err) {
+                  console.error('Failed to load recent connections:', err);
+                  document.getElementById('connections-body').innerHTML = '<tr><td colspan=\"6\">Error loading connections</td></tr>';
+                }
+              }
+
+              function applyFilters() {
+                loadGeoStats();
+                loadPingByCountry();
+                loadConnectionQuality();
+                loadQualityDistribution();
+              }
+
+              document.getElementById('apply-filters').addEventListener('click', applyFilters);
+
+              applyFilters();
+              loadRecentConnections();
+              setInterval(applyFilters, 60000);
+            </script>
+          </body>
+        </html>
+        """;
+
     private static final String PLAYERS_HTML = """
         <!doctype html>
         <html lang=\"en\">
@@ -1775,6 +2309,7 @@ public final class AnalyticsWebServer {
               <nav class=\"nav\">
                 <a class=\"nav-link\" href=\"/\">Overview</a>
                 <a class=\"nav-link active\" href=\"/players\">Players</a>
+                                <a class=\"nav-link\" href=\"/connections\">Connections</a>
                 <a class=\"nav-link\" href=\"/sessions\">Sessions</a>
                 <a class=\"nav-link\" href=\"/network\">Network</a>
               </nav>
@@ -2310,6 +2845,8 @@ public final class AnalyticsWebServer {
                 <a class=\"nav-link\" href=\"/\">Overview</a>
                 <a class=\"nav-link\" href=\"/players\">Players</a>
                 <a class=\"nav-link active\" href=\"/sessions\">Sessions</a>
+                                                <a class=\"nav-link\" href=\"/connections\">Connections</a>
+                                <a class=\"nav-link\" href=\"/connections\">Connections</a>
                 <a class=\"nav-link\" href=\"/network\">Network</a>
               </nav>
             </header>
@@ -2549,6 +3086,7 @@ public final class AnalyticsWebServer {
                 <a class=\"nav-link\" href=\"/players\">Players</a>
                 <a class=\"nav-link\" href=\"/sessions\">Sessions</a>
                 <a class=\"nav-link active\" href=\"/network\">Network</a>
+                              <a class=\"nav-link\" href=\"/connections\">Connections</a>
               </nav>
             </header>
             <main>
@@ -3000,6 +3538,178 @@ public final class AnalyticsWebServer {
             
             String json = PlayerAnalyticsDb.getChurnedPlayersJson(days);
             handleJson(exchange, json);
+        }
+    }
+    
+    static class PlayerConnectionsHandler implements com.sun.net.httpserver.HttpHandler {
+        @Override
+        public void handle(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+            String path = exchange.getRequestURI().getPath();
+            String playerUuid = path.replace("/api/player/connections/", "");
+            
+            if (playerUuid.isEmpty()) {
+                handleJson(exchange, "{\"error\":\"Player UUID required\"}");
+                return;
+            }
+            
+            try {
+                playerUuid = java.net.URLDecoder.decode(playerUuid, "UTF-8");
+            } catch (Exception e) {
+                handleJson(exchange, "{\"error\":\"Invalid player UUID\"}");
+                return;
+            }
+            
+            Map<String, String> params = parseQuery(exchange.getRequestURI());
+            int limit = 50;
+            try {
+                String limitStr = params.get("limit");
+                if (limitStr != null) {
+                    limit = Math.max(1, Math.min(Integer.parseInt(limitStr), 200));
+                }
+            } catch (NumberFormatException e) {
+                // Use default
+            }
+            
+            String json = PlayerAnalyticsDb.getPlayerConnectionsJson(java.util.UUID.fromString(playerUuid), limit);
+            handleJson(exchange, json);
+        }
+    }
+    
+    static class PlayerPingHandler implements com.sun.net.httpserver.HttpHandler {
+        @Override
+        public void handle(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+            String path = exchange.getRequestURI().getPath();
+            String playerUuid = path.replace("/api/player/ping/", "");
+            
+            if (playerUuid.isEmpty()) {
+                handleJson(exchange, "{\"error\":\"Player UUID required\"}");
+                return;
+            }
+            
+            try {
+                playerUuid = java.net.URLDecoder.decode(playerUuid, "UTF-8");
+            } catch (Exception e) {
+                handleJson(exchange, "{\"error\":\"Invalid player UUID\"}");
+                return;
+            }
+            
+            Map<String, String> params = parseQuery(exchange.getRequestURI());
+            int limit = 100;
+            try {
+                String limitStr = params.get("limit");
+                if (limitStr != null) {
+                    limit = Math.max(1, Math.min(Integer.parseInt(limitStr), 500));
+                }
+            } catch (NumberFormatException e) {
+                // Use default
+            }
+            
+            String json = PlayerAnalyticsDb.getPlayerPingHistoryJson(java.util.UUID.fromString(playerUuid), limit);
+            handleJson(exchange, json);
+        }
+    }
+    
+    static class UsernameHistoryHandler implements com.sun.net.httpserver.HttpHandler {
+        @Override
+        public void handle(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+            String path = exchange.getRequestURI().getPath();
+            String playerUuid = path.replace("/api/player/username-history/", "");
+            
+            if (playerUuid.isEmpty()) {
+                handleJson(exchange, "{\"error\":\"Player UUID required\"}");
+                return;
+            }
+            
+            try {
+                playerUuid = java.net.URLDecoder.decode(playerUuid, "UTF-8");
+            } catch (Exception e) {
+                handleJson(exchange, "{\"error\":\"Invalid player UUID\"}");
+                return;
+            }
+            
+            String json = PlayerAnalyticsDb.getUsernameHistoryJson(java.util.UUID.fromString(playerUuid));
+            handleJson(exchange, json);
+        }
+    }
+    
+    static class ConnectionStatsHandler implements com.sun.net.httpserver.HttpHandler {
+        @Override
+        public void handle(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+            String path = exchange.getRequestURI().getPath();
+            String playerUuid = path.replace("/api/player/connection-stats/", "");
+            
+            if (playerUuid.isEmpty()) {
+                handleJson(exchange, "{\"error\":\"Player UUID required\"}");
+                return;
+            }
+            
+            try {
+                playerUuid = java.net.URLDecoder.decode(playerUuid, "UTF-8");
+            } catch (Exception e) {
+                handleJson(exchange, "{\"error\":\"Invalid player UUID\"}");
+                return;
+            }
+            
+            String json = PlayerAnalyticsDb.getConnectionStatsJson(java.util.UUID.fromString(playerUuid));
+            handleJson(exchange, json);
+        }
+    }
+    
+    static class ConnectionQualityHandler implements com.sun.net.httpserver.HttpHandler {
+        @Override
+        public void handle(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+            String path = exchange.getRequestURI().getPath();
+            String playerUuid = path.replace("/api/player/connection-quality/", "");
+            
+            if (playerUuid.isEmpty()) {
+                handleJson(exchange, "{\"error\":\"Player UUID required\"}");
+                return;
+            }
+            
+            try {
+                playerUuid = java.net.URLDecoder.decode(playerUuid, "UTF-8");
+            } catch (Exception e) {
+                handleJson(exchange, "{\"error\":\"Invalid player UUID\"}");
+                return;
+            }
+            
+            String json = PlayerAnalyticsDb.getConnectionQualityJson(java.util.UUID.fromString(playerUuid));
+            handleJson(exchange, json);
+        }
+    }
+
+    static class GeoStatsHandler implements com.sun.net.httpserver.HttpHandler {
+        @Override
+        public void handle(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+            int days = readDays(exchange, 30, 3650);
+            int minConnections = readIntParam(exchange, "minConnections", 1, 1, 10000);
+            int limit = readIntParam(exchange, "limit", 15, 1, 100);
+            String json = PlayerAnalyticsDb.getGeoLocationStatsJson(days, minConnections, limit);
+            handleJson(exchange, json);
+        }
+    }
+
+    static class GeoPingStatsHandler implements com.sun.net.httpserver.HttpHandler {
+        @Override
+        public void handle(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+            int days = readDays(exchange, 30, 3650);
+            int minConnections = readIntParam(exchange, "minConnections", 1, 1, 10000);
+            int limit = readIntParam(exchange, "limit", 15, 1, 100);
+            String json = PlayerAnalyticsDb.getGeoPingStatsJson(days, minConnections, limit);
+            handleJson(exchange, json);
+        }
+    }
+
+    private static final class ConnectionsPageHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            byte[] body = CONNECTIONS_HTML.getBytes(StandardCharsets.UTF_8);
+            Headers headers = exchange.getResponseHeaders();
+            headers.set("Content-Type", "text/html; charset=utf-8");
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream output = exchange.getResponseBody()) {
+                output.write(body);
+            }
         }
     }
 }

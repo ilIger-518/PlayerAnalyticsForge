@@ -894,6 +894,107 @@ public final class PlayerAnalyticsDb {
                 statement.executeUpdate(
                     "CREATE INDEX IF NOT EXISTS idx_servers_network ON servers(network_name)"
                 );
+                
+                // Connection tracking tables
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS player_connections (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "player_uuid TEXT NOT NULL, " +
+                        "player_name TEXT NOT NULL, " +
+                        "join_address TEXT, " +
+                        "country TEXT, " +
+                        "country_code TEXT, " +
+                        "region TEXT, " +
+                        "city TEXT, " +
+                        "latitude REAL, " +
+                        "longitude REAL, " +
+                        "join_time_utc TEXT NOT NULL" +
+                    ")"
+                );
+                
+                // Add GeoIP columns to existing connections table (migration)
+                try {
+                    statement.executeUpdate("ALTER TABLE player_connections ADD COLUMN country TEXT");
+                } catch (SQLException ex) { /* Column exists */ }
+                try {
+                    statement.executeUpdate("ALTER TABLE player_connections ADD COLUMN country_code TEXT");
+                } catch (SQLException ex) { /* Column exists */ }
+                try {
+                    statement.executeUpdate("ALTER TABLE player_connections ADD COLUMN region TEXT");
+                } catch (SQLException ex) { /* Column exists */ }
+                try {
+                    statement.executeUpdate("ALTER TABLE player_connections ADD COLUMN city TEXT");
+                } catch (SQLException ex) { /* Column exists */ }
+                try {
+                    statement.executeUpdate("ALTER TABLE player_connections ADD COLUMN latitude REAL");
+                } catch (SQLException ex) { /* Column exists */ }
+                try {
+                    statement.executeUpdate("ALTER TABLE player_connections ADD COLUMN longitude REAL");
+                } catch (SQLException ex) { /* Column exists */ }
+                
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS player_ping_history (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "player_uuid TEXT NOT NULL, " +
+                        "ping_ms INTEGER NOT NULL, " +
+                        "recorded_at TEXT NOT NULL" +
+                    ")"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS username_history (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "player_uuid TEXT NOT NULL, " +
+                        "old_username TEXT, " +
+                        "new_username TEXT NOT NULL, " +
+                        "changed_at TEXT NOT NULL" +
+                    ")"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE TABLE IF NOT EXISTS connection_quality (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                        "player_uuid TEXT NOT NULL, " +
+                        "avg_ping INTEGER NOT NULL, " +
+                        "min_ping INTEGER NOT NULL, " +
+                        "max_ping INTEGER NOT NULL, " +
+                        "ping_variance REAL NOT NULL, " +
+                        "packet_loss_rate REAL DEFAULT 0, " +
+                        "connection_drops INTEGER DEFAULT 0, " +
+                        "total_connections INTEGER NOT NULL, " +
+                        "quality_score REAL, " +
+                        "recorded_at TEXT NOT NULL, " +
+                        "UNIQUE(player_uuid, recorded_at)" +
+                    ")"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_connections_player ON player_connections(player_uuid)"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_connections_time ON player_connections(join_time_utc)"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_ping_player ON player_ping_history(player_uuid)"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_ping_time ON player_ping_history(recorded_at)"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_username_player ON username_history(player_uuid)"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_connection_quality_player ON connection_quality(player_uuid)"
+                );
+                
+                statement.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_connection_quality_time ON connection_quality(recorded_at)"
+                );
             }
 
             return connection;
@@ -2304,6 +2405,535 @@ public final class PlayerAnalyticsDb {
             } catch (SQLException ex) {
                 PlayeranalyticsForgeMod.LOGGER.error("Failed to get at-risk players list", ex);
                 return "[]";
+            }
+        }
+    }
+    
+    // Connection tracking methods
+    public static void recordPlayerConnection(ServerPlayer player, String joinAddress) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                
+                // Insert connection record with placeholder for GeoIP data
+                String sql = "INSERT INTO player_connections (player_uuid, player_name, join_address, country, country_code, region, city, latitude, longitude, join_time_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                final long connectionId;
+                try (PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+                    stmt.setString(1, player.getUUID().toString());
+                    stmt.setString(2, player.getGameProfile().getName());
+                    stmt.setString(3, joinAddress);
+                    stmt.setString(4, null); // country - will be updated async
+                    stmt.setString(5, null); // country_code
+                    stmt.setString(6, null); // region
+                    stmt.setString(7, null); // city
+                    stmt.setObject(8, null); // latitude
+                    stmt.setObject(9, null); // longitude
+                    stmt.setString(10, Instant.now().toString());
+                    stmt.executeUpdate();
+                    
+                    try (ResultSet rs = stmt.getGeneratedKeys()) {
+                        if (rs.next()) {
+                            connectionId = rs.getLong(1);
+                        } else {
+                            connectionId = -1;
+                        }
+                    }
+                }
+                
+                // Fetch GeoIP data asynchronously to avoid blocking
+                if (connectionId > 0) {
+                    GeoIpUtil.lookupAsync(joinAddress).thenAccept(geoData -> {
+                        if (geoData.hasData()) {
+                            updateConnectionGeoIp(connectionId, geoData);
+                        }
+                    });
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to record player connection", ex);
+            }
+        }
+    }
+    
+    private static void updateConnectionGeoIp(long connectionId, GeoIpUtil.GeoIpData geoData) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "UPDATE player_connections SET country = ?, country_code = ?, region = ?, city = ?, latitude = ?, longitude = ? WHERE id = ?";
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, geoData.country);
+                    stmt.setString(2, geoData.countryCode);
+                    stmt.setString(3, geoData.region);
+                    stmt.setString(4, geoData.city);
+                    stmt.setObject(5, geoData.latitude);
+                    stmt.setObject(6, geoData.longitude);
+                    stmt.setLong(7, connectionId);
+                    stmt.executeUpdate();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.debug("Failed to update GeoIP data", ex);
+            }
+        }
+    }
+    
+    public static void recordPlayerPing(UUID playerUuid, int pingMs) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "INSERT INTO player_ping_history (player_uuid, ping_ms, recorded_at) VALUES (?, ?, ?)";
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, playerUuid.toString());
+                    stmt.setInt(2, pingMs);
+                    stmt.setString(3, Instant.now().toString());
+                    stmt.executeUpdate();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.debug("Failed to record player ping", ex);
+            }
+        }
+    }
+    
+    public static void calculateAndRecordConnectionQuality(UUID playerUuid) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                
+                // Get ping statistics from history
+                String pingSql = "SELECT AVG(ping_ms) as avg_ping, MIN(ping_ms) as min_ping, MAX(ping_ms) as max_ping, COUNT(*) as ping_count FROM player_ping_history WHERE player_uuid = ?";
+                int avgPing = 0, minPing = 0, maxPing = 0, pingCount = 0;
+                
+                try (PreparedStatement stmt = conn.prepareStatement(pingSql)) {
+                    stmt.setString(1, playerUuid.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            avgPing = rs.getInt("avg_ping");
+                            minPing = rs.getInt("min_ping");
+                            maxPing = rs.getInt("max_ping");
+                            pingCount = rs.getInt("ping_count");
+                        }
+                    }
+                }
+                
+                if (pingCount < 5) {
+                    return; // Not enough data
+                }
+                
+                // Calculate ping variance
+                double variance = 0;
+                String varianceSql = "SELECT ping_ms FROM player_ping_history WHERE player_uuid = ?";
+                try (PreparedStatement stmt = conn.prepareStatement(varianceSql)) {
+                    stmt.setString(1, playerUuid.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        double sumSquaredDiff = 0;
+                        int count = 0;
+                        while (rs.next()) {
+                            int ping = rs.getInt("ping_ms");
+                            double diff = ping - avgPing;
+                            sumSquaredDiff += diff * diff;
+                            count++;
+                        }
+                        if (count > 0) {
+                            variance = sumSquaredDiff / count;
+                        }
+                    }
+                }
+                
+                // Get connection count
+                String connSql = "SELECT COUNT(*) as conn_count FROM player_connections WHERE player_uuid = ?";
+                int connectionCount = 0;
+                try (PreparedStatement stmt = conn.prepareStatement(connSql)) {
+                    stmt.setString(1, playerUuid.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            connectionCount = rs.getInt("conn_count");
+                        }
+                    }
+                }
+                
+                // Calculate quality score (0-100)
+                // Lower ping = better, lower variance = better
+                double pingScore = Math.max(0, 100 - (avgPing / 3.0)); // 300ms = 0 score
+                double stabilityScore = Math.max(0, 100 - (Math.sqrt(variance) / 2.0)); // High jitter = low score
+                double qualityScore = (pingScore * 0.6 + stabilityScore * 0.4);
+                
+                // Insert quality record
+                String insertSql = "INSERT OR REPLACE INTO connection_quality (player_uuid, avg_ping, min_ping, max_ping, ping_variance, packet_loss_rate, connection_drops, total_connections, quality_score, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                try (PreparedStatement stmt = conn.prepareStatement(insertSql)) {
+                    stmt.setString(1, playerUuid.toString());
+                    stmt.setInt(2, avgPing);
+                    stmt.setInt(3, minPing);
+                    stmt.setInt(4, maxPing);
+                    stmt.setDouble(5, variance);
+                    stmt.setDouble(6, 0.0); // Packet loss not directly measurable
+                    stmt.setInt(7, 0); // Connection drops not tracked yet
+                    stmt.setInt(8, connectionCount);
+                    stmt.setDouble(9, qualityScore);
+                    stmt.setString(10, Instant.now().toString());
+                    stmt.executeUpdate();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.debug("Failed to calculate connection quality", ex);
+            }
+        }
+    }
+    
+    public static void checkAndRecordUsernameChange(ServerPlayer player) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT player_name FROM player_stats WHERE player_uuid = ?";
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, player.getUUID().toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            String oldName = rs.getString("player_name");
+                            String newName = player.getGameProfile().getName();
+                            if (oldName != null && !oldName.equals(newName)) {
+                                // Username changed, record it
+                                String insertSql = "INSERT INTO username_history (player_uuid, old_username, new_username, changed_at) VALUES (?, ?, ?, ?)";
+                                try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
+                                    insertStmt.setString(1, player.getUUID().toString());
+                                    insertStmt.setString(2, oldName);
+                                    insertStmt.setString(3, newName);
+                                    insertStmt.setString(4, Instant.now().toString());
+                                    insertStmt.executeUpdate();
+                                }
+                                PlayeranalyticsForgeMod.LOGGER.info("Detected username change for {}: {} -> {}", 
+                                    player.getUUID(), oldName, newName);
+                            }
+                        }
+                    }
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to check username change", ex);
+            }
+        }
+    }
+    
+    public static String getPlayerConnectionsJson(UUID playerUuid, int limit) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT join_address, country, country_code, region, city, latitude, longitude, join_time_utc FROM player_connections WHERE player_uuid = ? ORDER BY join_time_utc DESC LIMIT ?";
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, playerUuid.toString());
+                    stmt.setInt(2, limit);
+                    
+                    StringBuilder json = new StringBuilder("[");
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) json.append(",");
+                            json.append("{")
+                                .append("\"joinAddress\":").append(toJsonString(rs.getString("join_address"))).append(",")
+                                .append("\"country\":").append(toJsonString(rs.getString("country"))).append(",")
+                                .append("\"countryCode\":").append(toJsonString(rs.getString("country_code"))).append(",")
+                                .append("\"region\":").append(toJsonString(rs.getString("region"))).append(",")
+                                .append("\"city\":").append(toJsonString(rs.getString("city"))).append(",")
+                                .append("\"latitude\":").append(rs.getObject("latitude") != null ? rs.getDouble("latitude") : "null").append(",")
+                                .append("\"longitude\":").append(rs.getObject("longitude") != null ? rs.getDouble("longitude") : "null").append(",")
+                                .append("\"joinTime\":").append(toJsonString(rs.getString("join_time_utc")))
+                                .append("}");
+                            first = false;
+                        }
+                    }
+                    json.append("]");
+                    return json.toString();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get player connections", ex);
+                return "[]";
+            }
+        }
+    }
+    
+    public static String getPlayerPingHistoryJson(UUID playerUuid, int limit) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT ping_ms, recorded_at FROM player_ping_history WHERE player_uuid = ? ORDER BY recorded_at DESC LIMIT ?";
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, playerUuid.toString());
+                    stmt.setInt(2, limit);
+                    
+                    StringBuilder json = new StringBuilder("[");
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) json.append(",");
+                            json.append("{")
+                                .append("\"ping\":").append(rs.getInt("ping_ms")).append(",")
+                                .append("\"time\":").append(toJsonString(rs.getString("recorded_at")))
+                                .append("}");
+                            first = false;
+                        }
+                    }
+                    json.append("]");
+                    return json.toString();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get player ping history", ex);
+                return "[]";
+            }
+        }
+    }
+    
+    public static String getUsernameHistoryJson(UUID playerUuid) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT old_username, new_username, changed_at FROM username_history WHERE player_uuid = ? ORDER BY changed_at DESC";
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, playerUuid.toString());
+                    
+                    StringBuilder json = new StringBuilder("[");
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) json.append(",");
+                            json.append("{")
+                                .append("\"oldUsername\":").append(toJsonString(rs.getString("old_username"))).append(",")
+                                .append("\"newUsername\":").append(toJsonString(rs.getString("new_username"))).append(",")
+                                .append("\"changedAt\":").append(toJsonString(rs.getString("changed_at")))
+                                .append("}");
+                            first = false;
+                        }
+                    }
+                    json.append("]");
+                    return json.toString();
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get username history", ex);
+                return "[]";
+            }
+        }
+    }
+    
+    public static String getConnectionStatsJson(UUID playerUuid) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                StringBuilder json = new StringBuilder("{");
+                
+                // Get total connections count
+                String countSql = "SELECT COUNT(*) as count FROM player_connections WHERE player_uuid = ?";
+                try (PreparedStatement stmt = conn.prepareStatement(countSql)) {
+                    stmt.setString(1, playerUuid.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            json.append("\"totalConnections\":").append(rs.getInt("count"));
+                        }
+                    }
+                }
+                
+                // Get average ping
+                String avgPingSql = "SELECT AVG(ping_ms) as avg_ping, MIN(ping_ms) as min_ping, MAX(ping_ms) as max_ping FROM player_ping_history WHERE player_uuid = ?";
+                try (PreparedStatement stmt = conn.prepareStatement(avgPingSql)) {
+                    stmt.setString(1, playerUuid.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            json.append(",\"avgPing\":").append(rs.getInt("avg_ping"));
+                            json.append(",\"minPing\":").append(rs.getInt("min_ping"));
+                            json.append(",\"maxPing\":").append(rs.getInt("max_ping"));
+                        }
+                    }
+                }
+                
+                // Get username changes count
+                String usernameCountSql = "SELECT COUNT(*) as count FROM username_history WHERE player_uuid = ?";
+                try (PreparedStatement stmt = conn.prepareStatement(usernameCountSql)) {
+                    stmt.setString(1, playerUuid.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            json.append(",\"usernameChanges\":").append(rs.getInt("count"));
+                        }
+                    }
+                }
+                
+                // Get first join from player_stats
+                String firstJoinSql = "SELECT first_join FROM player_stats WHERE player_uuid = ?";
+                try (PreparedStatement stmt = conn.prepareStatement(firstJoinSql)) {
+                    stmt.setString(1, playerUuid.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            json.append(",\"firstJoin\":").append(toJsonString(rs.getString("first_join")));
+                        }
+                    }
+                }
+                
+                // Get latest connection quality
+                String qualitySql = "SELECT quality_score, ping_variance FROM connection_quality WHERE player_uuid = ? ORDER BY recorded_at DESC LIMIT 1";
+                try (PreparedStatement stmt = conn.prepareStatement(qualitySql)) {
+                    stmt.setString(1, playerUuid.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            json.append(",\"qualityScore\":").append(String.format("%.1f", rs.getDouble("quality_score")));
+                            json.append(",\"pingVariance\":").append(String.format("%.1f", rs.getDouble("ping_variance")));
+                        } else {
+                            json.append(",\"qualityScore\":null,\"pingVariance\":null");
+                        }
+                    }
+                }
+                
+                // Get unique countries
+                String countrySql = "SELECT COUNT(DISTINCT country) as unique_countries FROM player_connections WHERE player_uuid = ? AND country IS NOT NULL";
+                try (PreparedStatement stmt = conn.prepareStatement(countrySql)) {
+                    stmt.setString(1, playerUuid.toString());
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            json.append(",\"uniqueCountries\":").append(rs.getInt("unique_countries"));
+                        }
+                    }
+                }
+                
+                json.append("}");
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get connection stats", ex);
+                return "{\"totalConnections\":0,\"avgPing\":0,\"minPing\":0,\"maxPing\":0,\"usernameChanges\":0,\"firstJoin\":null,\"qualityScore\":null,\"pingVariance\":null,\"uniqueCountries\":0}";
+            }
+        }
+    }
+    
+    public static String getConnectionQualityJson(UUID playerUuid) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT avg_ping, min_ping, max_ping, ping_variance, quality_score, total_connections, recorded_at FROM connection_quality WHERE player_uuid = ? ORDER BY recorded_at DESC LIMIT 1";
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, playerUuid.toString());
+                    
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            return "{" +
+                                "\"avgPing\":" + rs.getInt("avg_ping") + "," +
+                                "\"minPing\":" + rs.getInt("min_ping") + "," +
+                                "\"maxPing\":" + rs.getInt("max_ping") + "," +
+                                "\"pingVariance\":" + String.format("%.2f", rs.getDouble("ping_variance")) + "," +
+                                "\"qualityScore\":" + String.format("%.2f", rs.getDouble("quality_score")) + "," +
+                                "\"totalConnections\":" + rs.getInt("total_connections") + "," +
+                                "\"recordedAt\":" + toJsonString(rs.getString("recorded_at")) +
+                                "}";
+                        }
+                    }
+                }
+                return "{\"error\":\"No quality data available\"}";
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get connection quality", ex);
+                return "{\"error\":\"Database error\"}";
+            }
+        }
+    }
+    
+    public static String getGeoLocationStatsJson() {
+        return getGeoLocationStatsJson(3650, 1, 50);
+    }
+
+    public static String getGeoLocationStatsJson(int days, int minConnections, int limit) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT country, country_code, COUNT(*) as connection_count, COUNT(DISTINCT player_uuid) as unique_players " +
+                    "FROM player_connections " +
+                    "WHERE country IS NOT NULL AND join_time_utc >= ? " +
+                    "GROUP BY country, country_code " +
+                    "HAVING COUNT(*) >= ? " +
+                    "ORDER BY connection_count DESC " +
+                    "LIMIT ?";
+                String since = Instant.now().minus(Duration.ofDays(days)).toString();
+
+                StringBuilder json = new StringBuilder("{");
+                json.append("\"since\":").append(toJsonString(since)).append(",");
+                json.append("\"countries\":[");
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, since);
+                    stmt.setInt(2, minConnections);
+                    stmt.setInt(3, limit);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) json.append(",");
+                            json.append("{")
+                                .append("\"country\":").append(toJsonString(rs.getString("country"))).append(",")
+                                .append("\"countryCode\":").append(toJsonString(rs.getString("country_code"))).append(",")
+                                .append("\"connections\":").append(rs.getInt("connection_count")).append(",")
+                                .append("\"uniquePlayers\":").append(rs.getInt("unique_players"))
+                                .append("}");
+                            first = false;
+                        }
+                    }
+                }
+                json.append("]}");
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get geo location stats", ex);
+                return "{\"since\":null,\"countries\":[]}";
+            }
+        }
+    }
+
+    public static String getGeoPingStatsJson(int days, int minConnections, int limit) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "WITH recent_connections AS (" +
+                    "SELECT pc.player_uuid, pc.country, pc.country_code, pc.join_time_utc " +
+                    "FROM player_connections pc " +
+                    "JOIN (" +
+                    "  SELECT player_uuid, MAX(join_time_utc) AS max_join " +
+                    "  FROM player_connections " +
+                    "  WHERE country IS NOT NULL AND join_time_utc >= ? " +
+                    "  GROUP BY player_uuid" +
+                    ") latest ON latest.player_uuid = pc.player_uuid AND latest.max_join = pc.join_time_utc" +
+                    "), recent_quality AS (" +
+                    "SELECT cq.player_uuid, cq.avg_ping, cq.recorded_at " +
+                    "FROM connection_quality cq " +
+                    "JOIN (" +
+                    "  SELECT player_uuid, MAX(recorded_at) AS max_record " +
+                    "  FROM connection_quality " +
+                    "  WHERE recorded_at >= ? " +
+                    "  GROUP BY player_uuid" +
+                    ") latest ON latest.player_uuid = cq.player_uuid AND latest.max_record = cq.recorded_at" +
+                    ") " +
+                    "SELECT rc.country, rc.country_code, COUNT(*) AS player_count, AVG(rq.avg_ping) AS avg_ping " +
+                    "FROM recent_connections rc " +
+                    "JOIN recent_quality rq ON rq.player_uuid = rc.player_uuid " +
+                    "GROUP BY rc.country, rc.country_code " +
+                    "HAVING COUNT(*) >= ? " +
+                    "ORDER BY player_count DESC " +
+                    "LIMIT ?";
+                String since = Instant.now().minus(Duration.ofDays(days)).toString();
+
+                StringBuilder json = new StringBuilder("{");
+                json.append("\"since\":").append(toJsonString(since)).append(",");
+                json.append("\"countries\":[");
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, since);
+                    stmt.setString(2, since);
+                    stmt.setInt(3, minConnections);
+                    stmt.setInt(4, limit);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) json.append(",");
+                            double avgPing = rs.getDouble("avg_ping");
+                            if (rs.wasNull()) {
+                                avgPing = 0.0;
+                            }
+                            json.append("{")
+                                .append("\"country\":").append(toJsonString(rs.getString("country"))).append(",")
+                                .append("\"countryCode\":").append(toJsonString(rs.getString("country_code"))).append(",")
+                                .append("\"avgPing\":").append(String.format("%.2f", avgPing)).append(",")
+                                .append("\"playerCount\":").append(rs.getInt("player_count"))
+                                .append("}");
+                            first = false;
+                        }
+                    }
+                }
+                json.append("]}");
+                return json.toString();
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to get geo ping stats", ex);
+                return "{\"since\":null,\"countries\":[]}";
             }
         }
     }

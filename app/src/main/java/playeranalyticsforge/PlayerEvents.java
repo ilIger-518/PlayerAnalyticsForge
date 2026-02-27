@@ -18,6 +18,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class PlayerEvents {
     private static long tickCounter = 0;
     private static long activityUpdateCounter = 0;
+    private static long pingTrackingCounter = 0;
+    private static long qualityCalculationCounter = 0;
     private static final ConcurrentHashMap<UUID, String> playerWorlds = new ConcurrentHashMap<>();
 
     private PlayerEvents() {
@@ -29,6 +31,19 @@ public final class PlayerEvents {
             // Track world
             String worldName = player.serverLevel().dimension().location().toString();
             playerWorlds.put(player.getUUID(), worldName);
+            
+            // Track connection (IP address)
+            try {
+                String joinAddress = player.getIpAddress();
+                if (joinAddress != null && !joinAddress.isEmpty()) {
+                    PlayerAnalyticsDb.recordPlayerConnection(player, joinAddress);
+                }
+            } catch (Exception ex) {
+                PlayeranalyticsForgeMod.LOGGER.debug("Failed to record connection address", ex);
+            }
+            
+            // Check for username changes
+            PlayerAnalyticsDb.checkAndRecordUsernameChange(player);
             
             // Track server transfer if network enabled
             if (AnalyticsConfig.NETWORK_ENABLED.get()) {
@@ -196,6 +211,8 @@ public final class PlayerEvents {
         if (event.phase == net.minecraftforge.event.TickEvent.Phase.END) {
             tickCounter++;
             activityUpdateCounter++;
+            pingTrackingCounter++;
+            qualityCalculationCounter++;
             
             long metricsInterval = AnalyticsConfig.METRICS_RECORDING_INTERVAL.get();
             if (tickCounter >= metricsInterval && event.getServer() != null) {
@@ -212,6 +229,41 @@ public final class PlayerEvents {
                     PlayerAnalyticsDb.updateDailyActivity();
                 }
             }
+            
+            // Track ping every 30 seconds (600 ticks)
+            if (pingTrackingCounter >= 600 && event.getServer() != null) {
+                pingTrackingCounter = 0;
+                recordAllPlayerPings(event.getServer());
+            }
+            
+            // Calculate connection quality every 5 minutes (6000 ticks)
+            if (qualityCalculationCounter >= 6000 && event.getServer() != null) {
+                qualityCalculationCounter = 0;
+                calculateAllConnectionQuality(event.getServer());
+            }
+        }
+    }
+    
+    private static void recordAllPlayerPings(net.minecraft.server.MinecraftServer server) {
+        try {
+            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                int ping = player.latency;
+                if (ping >= 0) {
+                    PlayerAnalyticsDb.recordPlayerPing(player.getUUID(), ping);
+                }
+            }
+        } catch (Exception ex) {
+            PlayeranalyticsForgeMod.LOGGER.debug("Failed to record player pings", ex);
+        }
+    }
+    
+    private static void calculateAllConnectionQuality(net.minecraft.server.MinecraftServer server) {
+        try {
+            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                PlayerAnalyticsDb.calculateAndRecordConnectionQuality(player.getUUID());
+            }
+        } catch (Exception ex) {
+            PlayeranalyticsForgeMod.LOGGER.debug("Failed to calculate connection quality", ex);
         }
     }
 

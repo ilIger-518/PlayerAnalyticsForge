@@ -84,12 +84,12 @@
 ## 🌍 Network & Connection Tracking
 
 ### Player Connection Data
-- [ ] GeoIP location tracking (country, city)
-- [ ] Join address/IP tracking
-- [ ] Ping/latency history
-- [ ] Connection quality metrics
-- [ ] Nickname/username change history
-- [ ] First join date tracking
+- [x] GeoIP location tracking (country, city)
+- [x] Join address/IP tracking
+- [x] Ping/latency history
+- [x] Connection quality metrics
+- [x] Nickname/username change history
+- [x] First join date tracking
 
 ## 💾 Data Management
 
