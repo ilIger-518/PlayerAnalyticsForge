@@ -23,6 +23,7 @@ import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 
+@SuppressWarnings("null")
 public final class AnalyticsCommands {
     
     private AnalyticsCommands() {

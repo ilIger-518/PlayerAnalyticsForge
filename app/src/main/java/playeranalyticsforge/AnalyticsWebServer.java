@@ -14,8 +14,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 public final class AnalyticsWebServer {
-    private static final String HOST = "127.0.0.1";
-    private static final int PORT = 8804;
     private static final int DEFAULT_LIMIT = 50;
     private static final Object LOCK = new Object();
     private static HttpServer server;

@@ -3,7 +3,6 @@ package playeranalyticsforge;
 import java.io.File;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -114,7 +113,7 @@ public final class DiscordIntegration {
                     Object listener = java.lang.reflect.Proxy.newProxyInstance(
                         loader,
                         new Class<?>[]{eventListenerClass},
-                        new DiscordMessageHandler(loader)
+                        new DiscordMessageHandler()
                     );
                     java.lang.reflect.Method addEventListenersMethod = builder.getClass().getMethod("addEventListeners", Object[].class);
                     addEventListenersMethod.invoke(builder, (Object) new Object[]{listener});
@@ -467,6 +466,7 @@ public final class DiscordIntegration {
     /**
      * Broadcast a Discord message to Minecraft chat
      */
+    @SuppressWarnings("null")
     public static void broadcastToMinecraft(String username, String content) {
         try {
             net.minecraft.server.MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
@@ -486,10 +486,7 @@ public final class DiscordIntegration {
      * InvocationHandler to handle Discord message events via reflection
      */
     static class DiscordMessageHandler implements java.lang.reflect.InvocationHandler {
-        private final ClassLoader loader;
-
-        public DiscordMessageHandler(ClassLoader loader) {
-            this.loader = loader;
+        public DiscordMessageHandler() {
         }
 
         @Override
