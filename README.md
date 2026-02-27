@@ -58,6 +58,9 @@ Status: Working with the required Gateway Intents enabled in the Discord Develop
   enabled = true
   botToken = "YOUR_BOT_TOKEN"
   channelId = "YOUR_CHANNEL_ID"
+  # Optional overrides (empty = use channelId)
+  joinsLeavesChannelId = ""
+  deathsChannelId = ""
   guildId = "YOUR_GUILD_ID"
   bridgeChat = true
   notifyJoins = true
@@ -82,6 +85,7 @@ Notes:
   - Gateway intents are enabled in Developer Portal
   - Bot has Send Messages permission in the channel
   - channelId and guildId are correct
+  - joinsLeavesChannelId and deathsChannelId (if set) are correct
   - Bot is online (green status in Discord)
 
 ## Dev runtime outputs

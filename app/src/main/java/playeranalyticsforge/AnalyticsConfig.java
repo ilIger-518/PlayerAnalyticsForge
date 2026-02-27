@@ -61,6 +61,8 @@ public final class AnalyticsConfig {
         public static final ForgeConfigSpec.BooleanValue DISCORD_ENABLED;
         public static final ForgeConfigSpec.ConfigValue<String> DISCORD_BOT_TOKEN;
         public static final ForgeConfigSpec.ConfigValue<String> DISCORD_CHANNEL_ID;
+        public static final ForgeConfigSpec.ConfigValue<String> DISCORD_JOINS_LEAVES_CHANNEL_ID;
+        public static final ForgeConfigSpec.ConfigValue<String> DISCORD_DEATHS_CHANNEL_ID;
         public static final ForgeConfigSpec.ConfigValue<String> DISCORD_GUILD_ID;
         public static final ForgeConfigSpec.BooleanValue DISCORD_BRIDGE_CHAT;
         public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_JOINS;
@@ -257,6 +259,14 @@ public final class AnalyticsConfig {
         DISCORD_CHANNEL_ID = BUILDER
                 .comment("Target Discord channel ID for notifications")
                 .define("channelId", "");
+
+        DISCORD_JOINS_LEAVES_CHANNEL_ID = BUILDER
+                .comment("Optional channel ID override for join/leave notifications (empty = use channelId)")
+                .define("joinsLeavesChannelId", "");
+
+        DISCORD_DEATHS_CHANNEL_ID = BUILDER
+                .comment("Optional channel ID override for death notifications (empty = use channelId)")
+                .define("deathsChannelId", "");
 
         DISCORD_GUILD_ID = BUILDER
                 .comment("Optional Discord server (guild) ID; improves channel lookup reliability")

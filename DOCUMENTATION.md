@@ -338,6 +338,12 @@ PlayerAnalytics can send real-time event notifications to Discord using a bot to
   
   # Target Discord channel ID for notifications
   channelId = ""
+
+  # Optional channel override for join/leave notifications (empty = use channelId)
+  joinsLeavesChannelId = ""
+
+  # Optional channel override for death notifications (empty = use channelId)
+  deathsChannelId = ""
   
   # Optional Discord guild ID (improves channel lookup reliability)
   guildId = ""

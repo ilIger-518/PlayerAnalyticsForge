@@ -146,12 +146,11 @@ public final class DiscordIntegration {
         }
     }
 
-    private static Object getTargetChannel() {
+    private static Object getTargetChannel(String channelId) {
         if (jda == null || !jdaAvailable) {
             return null;
         }
 
-        String channelId = AnalyticsConfig.DISCORD_CHANNEL_ID.get();
         if (channelId == null || channelId.isBlank()) {
             return null;
         }
@@ -177,14 +176,18 @@ public final class DiscordIntegration {
     }
 
     private static void sendEmbed(String title, String description, int color) {
+        sendEmbedToChannel(AnalyticsConfig.DISCORD_CHANNEL_ID.get(), title, description, color);
+    }
+
+    private static void sendEmbedToChannel(String channelId, String title, String description, int color) {
         if (!jdaAvailable) {
             return;
         }
 
-        Object channel = getTargetChannel();
+        Object channel = getTargetChannel(channelId);
         if (channel == null) {
             PlayeranalyticsForgeMod.LOGGER.error("Discord channel not found! Channel ID: {}. Make sure the bot has access to the channel.", 
-                AnalyticsConfig.DISCORD_CHANNEL_ID.get());
+                channelId);
             return;
         }
 
@@ -330,7 +333,8 @@ public final class DiscordIntegration {
             return;
         }
 
-        sendEmbed("⬇️ Player Joined", "**" + escapeMarkdown(playerName) + "**", 3066993); // Green
+        sendEmbedToChannel(resolveChannelId(AnalyticsConfig.DISCORD_JOINS_LEAVES_CHANNEL_ID.get()),
+                "⬇️ Player Joined", "**" + escapeMarkdown(playerName) + "**", 3066993); // Green
     }
 
     /**
@@ -342,7 +346,8 @@ public final class DiscordIntegration {
         }
 
         String duration = formatDuration(playtimeSeconds);
-        sendEmbed("⬆️ Player Left", "**" + escapeMarkdown(playerName) + "**\nSession Duration: " + duration, 15158332); // Red
+        sendEmbedToChannel(resolveChannelId(AnalyticsConfig.DISCORD_JOINS_LEAVES_CHANNEL_ID.get()),
+                "⬆️ Player Left", "**" + escapeMarkdown(playerName) + "**\nSession Duration: " + duration, 15158332); // Red
     }
 
     /**
@@ -369,9 +374,17 @@ public final class DiscordIntegration {
             return;
         }
 
-        sendEmbed("💀 Player Death", 
+        sendEmbedToChannel(resolveChannelId(AnalyticsConfig.DISCORD_DEATHS_CHANNEL_ID.get()),
+                "💀 Player Death",
                 "**" + escapeMarkdown(playerName) + "** died\nCause: " + escapeMarkdown(deathCause),
                 9109504); // Purple
+    }
+
+    private static String resolveChannelId(String preferredChannelId) {
+        if (preferredChannelId != null && !preferredChannelId.isBlank()) {
+            return preferredChannelId;
+        }
+        return AnalyticsConfig.DISCORD_CHANNEL_ID.get();
     }
 
     /**
