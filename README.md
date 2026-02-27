@@ -16,6 +16,8 @@ Join/leave events are recorded to a local SQLite database.
 ## Discord bot integration
 This mod can send notifications to a Discord channel using a bot token (not webhooks).
 
+Status: Working with the required Gateway Intents enabled in the Discord Developer Portal.
+
 1. Create a bot in the Discord Developer Portal and add it to your server.
 2. **Enable Privileged Gateway Intents** in Bot settings:
   - **MESSAGE CONTENT INTENT** (required)

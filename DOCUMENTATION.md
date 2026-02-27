@@ -1,6 +1,6 @@
 # PlayerAnalytics Mod Documentation
 
-**Version**: 1.1.2  
+**Version**: 1.2  
 **Minecraft Version**: 1.20.1  
 **Mod Loader**: Minecraft Forge 47.3.0  
 **License**: MIT  
@@ -117,7 +117,7 @@
 ### Installation Steps
 
 1. **Download the Mod**
-   - Place `PlayerAnalytics-1.20.1-1.1.2.jar` in your server's `mods` folder
+  - Place `PlayerAnalytics-1.20.1-1.2.jar` in your server's `mods` folder
 
 2. **Start Server**
    ```bash
@@ -454,12 +454,11 @@ Discord notifications include:
 5. Enable specific notification types: `notifyJoins = true`, etc.
 6. Look for error messages in server logs
 
-**Problem**: `NoSuchMethodException: net.dv8tion.jda.api.EmbedBuilder.setTimestamp`
+**Problem**: `NoSuchMethodException` for Discord message/embeds
 
 **Solutions**:
-1. This indicates a JDA beta API mismatch with embed timestamp handling
-2. Temporarily disable timestamp setting in the Discord embed builder
-3. Update the integration to use the correct method name for the JDA version in use
+1. Update to v1.2 or later (the Discord integration now targets the JDA 5 beta API correctly)
+2. Ensure the bot has the required Gateway Intents enabled
 
 ---
 
@@ -1330,7 +1329,7 @@ app/
 
 ## Version History
 
-### v1.1.2 (Current)
+### v1.2 (Current)
 - **Bidirectional chat bridge**: Minecraft ↔ Discord chat synchronization
 - Discord bot integration (real-time notifications)
 - Enhanced event notifications for joins, leaves, kills, deaths
@@ -1426,4 +1425,4 @@ PlayerAnalytics is released under the MIT License. See LICENSE file for details.
 ---
 
 **Last Updated**: February 26, 2026  
-**Documentation Version**: 1.1.2
+**Documentation Version**: 1.2

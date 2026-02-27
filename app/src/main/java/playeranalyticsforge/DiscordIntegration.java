@@ -110,10 +110,10 @@ public final class DiscordIntegration {
             // Add message listener if chat bridging is enabled
             if (AnalyticsConfig.DISCORD_BRIDGE_CHAT.get()) {
                 try {
-                    Class<?> listenerAdapterClass = loader.loadClass("net.dv8tion.jda.api.hooks.ListenerAdapter");
+                    Class<?> eventListenerClass = loader.loadClass("net.dv8tion.jda.api.hooks.EventListener");
                     Object listener = java.lang.reflect.Proxy.newProxyInstance(
                         loader,
-                        new Class<?>[]{listenerAdapterClass},
+                        new Class<?>[]{eventListenerClass},
                         new DiscordMessageHandler(loader)
                     );
                     java.lang.reflect.Method addEventListenersMethod = builder.getClass().getMethod("addEventListeners", Object[].class);
@@ -249,8 +249,22 @@ public final class DiscordIntegration {
             Object builtEmbed = buildMethod.invoke(embed);
             
             // Send via channel
-            java.lang.reflect.Method sendMessageEmbedsMethod = channel.getClass().getMethod("sendMessageEmbeds", java.util.List.class);
-            Object action = sendMessageEmbedsMethod.invoke(channel, java.util.Arrays.asList(builtEmbed));
+            Class<?> messageChannelClass = loader.loadClass("net.dv8tion.jda.api.entities.channel.middleman.MessageChannel");
+            java.lang.reflect.Method sendMessageEmbedsMethod = findPublicMethod(messageChannelClass, "sendMessageEmbeds", java.util.Collection.class);
+            Object action;
+            if (sendMessageEmbedsMethod != null) {
+                action = sendMessageEmbedsMethod.invoke(channel, java.util.Arrays.asList(builtEmbed));
+            } else {
+                Class<?> messageEmbedClass = loader.loadClass("net.dv8tion.jda.api.entities.MessageEmbed");
+                Class<?> embedArrayClass = java.lang.reflect.Array.newInstance(messageEmbedClass, 0).getClass();
+                sendMessageEmbedsMethod = findPublicMethod(messageChannelClass, "sendMessageEmbeds", embedArrayClass);
+                if (sendMessageEmbedsMethod == null) {
+                    throw new NoSuchMethodException("sendMessageEmbeds");
+                }
+                Object embedArray = java.lang.reflect.Array.newInstance(messageEmbedClass, 1);
+                java.lang.reflect.Array.set(embedArray, 0, builtEmbed);
+                action = sendMessageEmbedsMethod.invoke(channel, embedArray);
+            }
             
             // Queue with error callback
             Class<?> consumerClass = loader.loadClass("java.util.function.Consumer");
@@ -378,6 +392,14 @@ public final class DiscordIntegration {
         }
     }
 
+    private static java.lang.reflect.Method findPublicMethod(Class<?> target, String name, Class<?>... params) {
+        try {
+            return target.getMethod(name, params);
+        } catch (NoSuchMethodException ex) {
+            return null;
+        }
+    }
+
     /**
      * Send a simple chat message to Discord (not an embed)
      */
@@ -409,7 +431,14 @@ public final class DiscordIntegration {
 
             // Send formatted message
             String formattedMessage = "**[" + escapeMarkdown(playerName) + "]** " + escapeMarkdown(message);
-            java.lang.reflect.Method sendMessageMethod = channel.getClass().getMethod("sendMessage", String.class);
+            Class<?> messageChannelClass = loader.loadClass("net.dv8tion.jda.api.entities.channel.middleman.MessageChannel");
+            java.lang.reflect.Method sendMessageMethod = findPublicMethod(messageChannelClass, "sendMessage", CharSequence.class);
+            if (sendMessageMethod == null) {
+                sendMessageMethod = findPublicMethod(messageChannelClass, "sendMessage", String.class);
+            }
+            if (sendMessageMethod == null) {
+                throw new NoSuchMethodException("sendMessage");
+            }
             Object action = sendMessageMethod.invoke(channel, formattedMessage);
             
             // Queue with error callback
@@ -465,10 +494,17 @@ public final class DiscordIntegration {
 
         @Override
         public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] args) throws Throwable {
-            // We're looking for onMessageReceived method
-            if ("onMessageReceived".equals(method.getName()) && args != null && args.length > 0) {
+            if (args == null || args.length == 0) {
+                return null;
+            }
+
+            if ("onEvent".equals(method.getName()) || "onMessageReceived".equals(method.getName())) {
                 try {
                     Object event = args[0];
+                    String eventClassName = event.getClass().getName();
+                    if (!eventClassName.endsWith("MessageReceivedEvent")) {
+                        return null;
+                    }
                     
                     // Get author
                     java.lang.reflect.Method getAuthorMethod = event.getClass().getMethod("getAuthor");
