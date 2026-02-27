@@ -77,7 +77,10 @@ sourceSets.main.resources { srcDir 'src/generated/resources' }
 dependencies {
     minecraft "net.minecraftforge:forge:${project.minecraft_version}-${project.forge_version}"
 
-    // SQLite JDBC
+    // SQLite JDBC - bundled into the jar via jarJar
+    jarJar('org.xerial:sqlite-jdbc:[3.45.3.0,)') {
+        jarJar.pin(it, '3.45.3.0')
+    }
     implementation 'org.xerial:sqlite-jdbc:3.45.3.0'
 
     // Discord bot (JDA) - let Maven resolve all transitive dependencies
