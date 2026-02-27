@@ -46,6 +46,7 @@ public final class AnalyticsWebServer {
                 return;
             }
 
+            createContextWithSecurity(server, "/css/", new StaticResourceHandler());
             createContextWithSecurity(server, "/", new IndexHandler());
             createContextWithSecurity(server, "/players", new PlayersPageHandler());
             createContextWithSecurity(server, "/sessions", new SessionsPageHandler());
@@ -351,6 +352,37 @@ public final class AnalyticsWebServer {
         }
     }
 
+    private static final class StaticResourceHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String requestPath = exchange.getRequestURI().getPath();
+            // e.g. /css/main.css -> /web/css/main.css in classpath
+            String resourcePath = "/web" + requestPath;
+            try (var stream = AnalyticsWebServer.class.getResourceAsStream(resourcePath)) {
+                if (stream == null) {
+                    sendPlainText(exchange, 404, "Not Found");
+                    return;
+                }
+                byte[] content = stream.readAllBytes();
+                Headers headers = exchange.getResponseHeaders();
+                if (requestPath.endsWith(".css")) {
+                    headers.set("Content-Type", "text/css; charset=utf-8");
+                } else if (requestPath.endsWith(".js")) {
+                    headers.set("Content-Type", "application/javascript; charset=utf-8");
+                } else {
+                    headers.set("Content-Type", "application/octet-stream");
+                }
+                headers.set("Cache-Control", "public, max-age=3600");
+                exchange.sendResponseHeaders(200, content.length);
+                try (OutputStream output = exchange.getResponseBody()) {
+                    output.write(content);
+                }
+            } catch (IOException e) {
+                sendPlainText(exchange, 500, "Internal Server Error");
+            }
+        }
+    }
+
     private static final class PlayersPageHandler implements HttpHandler {
       @Override
       public void handle(HttpExchange exchange) throws IOException {
@@ -397,100 +429,11 @@ public final class AnalyticsWebServer {
           <head>
             <meta charset=\"utf-8\" />
             <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-            <title>Playeranalytics</title>
+            <title>Player Analytics | Dashboard</title>
             <script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>
+            <link rel=\"stylesheet\" href=\"/css/default-colors.css\">
+            <link rel=\"stylesheet\" href=\"/css/main.css\">
             <style>
-              :root {
-                color-scheme: light;
-                --bg: #f6f4ef;
-                --ink: #1f1d1a;
-                --muted: #6f655d;
-                --accent: #d0752f;
-                --card: #ffffff;
-                --line: #e4ddd4;
-              }
-              body {
-                margin: 0;
-                font-family: "Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif;
-                background: radial-gradient(circle at top, #fff7ed 0%, var(--bg) 55%);
-                color: var(--ink);
-              }
-              header {
-                padding: 32px 24px 12px;
-              }
-              .nav {
-                display: flex;
-                gap: 12px;
-                flex-wrap: wrap;
-                margin-top: 14px;
-              }
-              .nav-link {
-                text-decoration: none;
-                color: var(--ink);
-                padding: 6px 12px;
-                border-radius: 999px;
-                border: 1px solid var(--line);
-                background: #fff;
-                font-size: 14px;
-                font-weight: 600;
-              }
-              .nav-link.active {
-                background: var(--accent);
-                border-color: var(--accent);
-                color: #fff;
-              }
-              h1 {
-                margin: 0 0 6px;
-                font-size: 32px;
-                letter-spacing: -0.02em;
-              }
-              p {
-                margin: 0;
-                color: var(--muted);
-              }
-              main {
-                display: grid;
-                gap: 18px;
-                padding: 0 24px 32px;
-                grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-              }
-              .card-full {
-                grid-column: 1 / -1;
-              }
-              .card-half {
-                grid-column: span 1;
-              }
-              @media (max-width: 1200px) {
-                .card-half {
-                  grid-column: 1 / -1;
-                }
-              }
-              .card {
-                background: var(--card);
-                border: 1px solid var(--line);
-                border-radius: 16px;
-                padding: 16px;
-                box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
-              }
-              .stat {
-                font-size: 26px;
-                font-weight: 600;
-                margin-top: 8px;
-              }
-              table {
-                width: 100%;
-                border-collapse: collapse;
-                font-size: 14px;
-              }
-              th, td {
-                padding: 8px;
-                border-bottom: 1px solid var(--line);
-                text-align: left;
-              }
-              th {
-                color: var(--muted);
-                font-weight: 600;
-              }
               th.sortable {
                 cursor: pointer;
                 user-select: none;
@@ -498,7 +441,7 @@ public final class AnalyticsWebServer {
                 padding-right: 24px;
               }
               th.sortable:hover {
-                color: var(--accent);
+                color: var(--color-plan);
               }
               th.sortable::after {
                 content: '⇅';
@@ -510,12 +453,12 @@ public final class AnalyticsWebServer {
               th.sortable.asc::after {
                 content: '▲';
                 opacity: 1;
-                color: var(--accent);
+                color: var(--color-plan);
               }
               th.sortable.desc::after {
                 content: '▼';
                 opacity: 1;
-                color: var(--accent);
+                color: var(--color-plan);
               }
               .table-controls {
                 display: flex;
@@ -528,42 +471,42 @@ public final class AnalyticsWebServer {
                 flex: 1;
                 min-width: 200px;
                 padding: 8px 12px;
-                border: 1px solid var(--line);
+                border: 1px solid var(--color-card-border);
                 border-radius: 6px;
-                background: var(--bg);
+                background: var(--color-layout-background);
                 color: var(--text);
                 font-size: 14px;
               }
               .search-input:focus {
                 outline: none;
-                border-color: var(--accent);
+                border-color: var(--color-plan);
               }
               .filter-badge {
                 display: inline-block;
                 padding: 4px 8px;
-                background: rgba(208, 117, 47, 0.15);
+                background: rgba(54, 143, 23, 0.15);
                 border-radius: 4px;
                 font-size: 12px;
-                color: var(--accent);
+                color: var(--color-plan);
               }
               .pill {
                 display: inline-block;
                 padding: 2px 8px;
                 border-radius: 999px;
-                background: rgba(208, 117, 47, 0.12);
-                color: var(--accent);
+                background: rgba(54, 143, 23, 0.12);
+                color: var(--color-plan);
                 font-weight: 600;
               }
               .footer {
                 padding: 0 24px 24px;
-                color: var(--muted);
+                color: var(--color-secondary);
                 font-size: 12px;
               }
               .overview {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                background: linear-gradient(90deg, #2f9b23 0%, #368f17 70%, #2a7017 100%);
                 color: white;
                 border: none;
-                box-shadow: 0 20px 60px rgba(102, 126, 234, 0.3);
+                box-shadow: 0 8px 24px rgba(54, 143, 23, 0.3);
               }
               .overview-grid {
                 display: grid;
@@ -601,7 +544,7 @@ public final class AnalyticsWebServer {
               }
               .chart-tile {
                 background: rgba(255, 255, 255, 0.9);
-                border: 1px solid var(--line);
+                border: 1px solid var(--color-card-border);
                 border-radius: 14px;
                 padding: 12px;
               }
@@ -616,7 +559,7 @@ public final class AnalyticsWebServer {
                 margin-bottom: 12px;
               }
               .churn-metric {
-                background: rgba(208, 117, 47, 0.12);
+                background: rgba(54, 143, 23, 0.12);
                 border-radius: 10px;
                 padding: 8px;
                 text-align: center;
@@ -625,7 +568,7 @@ public final class AnalyticsWebServer {
               .churn-metric strong {
                 display: block;
                 font-size: 18px;
-                color: var(--ink);
+                color: var(--color-ink);
               }
               .status-indicator {
                 display: inline-block;
@@ -647,14 +590,14 @@ public final class AnalyticsWebServer {
           </head>
           <body>
             <header>
-              <h1>Playeranalytics</h1>
-              <p>Local server dashboard. Refreshes automatically.</p>
+              <h1>Player Analytics</h1>
+              <p>Minecraft server analytics &mdash; refreshes automatically.</p>
               <nav class=\"nav\">
                 <a class=\"nav-link active\" href=\"/\">Overview</a>
                 <a class=\"nav-link\" href=\"/players\">Players</a>
                 <a class=\"nav-link\" href=\"/sessions\">Sessions</a>
                 <a class=\"nav-link\" href=\"/network\">Network</a>
-                              <a class=\"nav-link\" href=\"/connections\">Connections</a>
+                <a class=\"nav-link\" href=\"/connections\">Connections</a>
               </nav>
             </header>
             <main>
@@ -743,7 +686,7 @@ public final class AnalyticsWebServer {
               <section class=\"card card-half\">
                 <div class=\"pill\">Online Players (<span id=\"online-count\">0</span>)</div>
                 <div id=\"online-players-list\" style=\"font-size: 14px; margin-top: 12px; max-height: 220px; overflow-y: auto;\">
-                  <p style=\"color: var(--muted);\">No players online</p>
+                  <p style=\"color: var(--color-secondary);\">No players online</p>
                 </div>
               </section>
               <section class=\"card card-half\">
@@ -911,7 +854,7 @@ public final class AnalyticsWebServer {
                 <div class=\"pill\">Leaderboards</div>
                 <div style=\"display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));\">
                   <div>
-                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">🏆 Most Active (Playtime)</h3>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--color-plan);\">🏆 Most Active (Playtime)</h3>
                     <table style=\"margin-top: 8px;\">
                       <thead>
                         <tr>
@@ -924,7 +867,7 @@ public final class AnalyticsWebServer {
                     </table>
                   </div>
                   <div>
-                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">⚔️ Highest K/D Ratio</h3>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--color-plan);\">⚔️ Highest K/D Ratio</h3>
                     <table style=\"margin-top: 8px;\">
                       <thead>
                         <tr>
@@ -937,7 +880,7 @@ public final class AnalyticsWebServer {
                     </table>
                   </div>
                   <div>
-                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">🔥 Longest Kill Streak</h3>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--color-plan);\">🔥 Longest Kill Streak</h3>
                     <table style=\"margin-top: 8px;\">
                       <thead>
                         <tr>
@@ -950,7 +893,7 @@ public final class AnalyticsWebServer {
                     </table>
                   </div>
                   <div>
-                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">💀 Total Kills</h3>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--color-plan);\">💀 Total Kills</h3>
                     <table style=\"margin-top: 8px;\">
                       <thead>
                         <tr>
@@ -963,7 +906,7 @@ public final class AnalyticsWebServer {
                     </table>
                   </div>
                   <div>
-                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">⚡ PvP Kills</h3>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--color-plan);\">⚡ PvP Kills</h3>
                     <table style=\"margin-top: 8px;\">
                       <thead>
                         <tr>
@@ -976,7 +919,7 @@ public final class AnalyticsWebServer {
                     </table>
                   </div>
                   <div>
-                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">📊 Most Sessions</h3>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--color-plan);\">📊 Most Sessions</h3>
                     <table style=\"margin-top: 8px;\">
                       <thead>
                         <tr>
@@ -991,7 +934,7 @@ public final class AnalyticsWebServer {
                 </div>
               </section>
             </main>
-            <div class=\"footer\">Powered by Playeranalytics Forge mod</div>
+            <div class=\"footer\">Powered by Player Analytics &mdash; Minecraft Forge.</div>
             <script>
               // Table sorting utility
               function makeTableSortable(tableId) {
@@ -1124,7 +1067,7 @@ public final class AnalyticsWebServer {
                   const playtimeHours = Math.floor(player.totalPlaytimeSeconds / 3600);
                   const playtimeMinutes = Math.floor((player.totalPlaytimeSeconds % 3600) / 60);
                   const playtimeDisplay = `${playtimeHours}h ${playtimeMinutes}m`;
-                  const playerLink = `<a href=\"/player/${player.playerUuid}\" style=\"color: var(--accent); text-decoration: none;\">${player.playerName}</a>`;
+                  const playerLink = `<a href=\"/player/${player.playerUuid}\" style=\"color: var(--color-plan); text-decoration: none;\">${player.playerName}</a>`;
                   row.innerHTML = `<td>${playerLink}</td><td>${playtimeDisplay}</td><td>${player.lastSeen ?? \"-\"}</td><td>${player.joins}</td><td>${player.leaves}</td><td>${player.kills}</td><td>${player.deaths}</td><td>${player.kdRatio}</td>`;
                   body.appendChild(row);
                 });
@@ -1653,7 +1596,7 @@ public final class AnalyticsWebServer {
                     const rankStyle = entry.rank === 1 ? 'color: #FFD700; font-weight: bold;' :
                                      entry.rank === 2 ? 'color: #C0C0C0; font-weight: bold;' :
                                      entry.rank === 3 ? 'color: #CD7F32; font-weight: bold;' : '';
-                    const playerLink = `<a href="/player/${entry.player_uuid}" style="color: var(--accent); text-decoration: none;">${entry.player_name}</a>`;
+                    const playerLink = `<a href="/player/${entry.player_uuid}" style="color: var(--color-plan); text-decoration: none;">${entry.player_name}</a>`;
                     row.innerHTML = `<td style="${rankStyle}">${entry.rank}</td><td>${playerLink}</td><td>${leaderboard.formatter(entry.value)}</td>`;
                     tbody.appendChild(row);
                   });
@@ -1729,7 +1672,7 @@ public final class AnalyticsWebServer {
                 countSpan.textContent = data.length;
                 
                 if (data.length === 0) {
-                  container.innerHTML = '<p style="color: var(--muted);">No players online</p>';
+                  container.innerHTML = '<p style="color: var(--color-secondary);">No players online</p>';
                   return;
                 }
                 
@@ -1742,14 +1685,14 @@ public final class AnalyticsWebServer {
                     : `${durationSeconds}s`;
                   
                   const playerDiv = document.createElement("div");
-                  playerDiv.style.cssText = "padding: 8px 0; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center;";
+                  playerDiv.style.cssText = "padding: 8px 0; border-bottom: 1px solid var(--color-tables-border); display: flex; justify-content: space-between; align-items: center;";
                   playerDiv.innerHTML = `
                     <div>
-                      <a href="/player/${player.player_uuid}" style="color: var(--accent); text-decoration: none; font-weight: 600;">
+                      <a href="/player/${player.player_uuid}" style="color: var(--color-plan); text-decoration: none; font-weight: 600;">
                         ${player.player_name}
                       </a>
                     </div>
-                    <div style="color: var(--muted); font-size: 12px;">
+                    <div style="color: var(--color-secondary); font-size: 12px;">
                       ${durationDisplay}
                     </div>
                   `;
@@ -1830,112 +1773,11 @@ public final class AnalyticsWebServer {
           <head>
             <meta charset=\"utf-8\" />
             <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-            <title>Connections - Playeranalytics</title>
+            <title>Connections | Player Analytics</title>
             <script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>
+            <link rel=\"stylesheet\" href=\"/css/default-colors.css\">
+            <link rel=\"stylesheet\" href=\"/css/main.css\">
             <style>
-              :root {
-                color-scheme: light;
-                --bg: #f6f4ef;
-                --ink: #1f1d1a;
-                --muted: #6f655d;
-                --accent: #d0752f;
-                --card: #ffffff;
-                --line: #e4ddd4;
-              }
-              body {
-                margin: 0;
-                font-family: \"Space Grotesk\", \"IBM Plex Sans\", \"Segoe UI\", sans-serif;
-                background: radial-gradient(circle at top, #fff7ed 0%, var(--bg) 55%);
-                color: var(--ink);
-              }
-              header {
-                padding: 32px 24px 12px;
-              }
-              h1 {
-                margin: 0 0 6px;
-                font-size: 32px;
-                letter-spacing: -0.02em;
-              }
-              p {
-                margin: 0;
-                color: var(--muted);
-              }
-              .nav {
-                display: flex;
-                gap: 12px;
-                flex-wrap: wrap;
-                margin-top: 14px;
-              }
-              .nav-link {
-                text-decoration: none;
-                color: var(--ink);
-                padding: 6px 12px;
-                border-radius: 999px;
-                border: 1px solid var(--line);
-                background: #fff;
-                font-size: 14px;
-                font-weight: 600;
-              }
-              .nav-link.active {
-                background: var(--accent);
-                border-color: var(--accent);
-                color: #fff;
-              }
-              main {
-                display: grid;
-                gap: 18px;
-                padding: 0 24px 32px;
-                grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-              }
-              .card {
-                background: var(--card);
-                border: 1px solid var(--line);
-                border-radius: 16px;
-                padding: 16px;
-                box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
-              }
-              .card-full {
-                grid-column: 1 / -1;
-              }
-              .card-half {
-                grid-column: span 1;
-              }
-              @media (max-width: 1200px) {
-                .card-half {
-                  grid-column: 1 / -1;
-                }
-              }
-              .pill {
-                padding: 4px 10px;
-                background: linear-gradient(135deg, #fbbf24, var(--accent));
-                color: white;
-                font-weight: 600;
-                border-radius: 999px;
-                font-size: 12px;
-                text-transform: uppercase;
-                letter-spacing: 0.03em;
-                display: inline-block;
-                margin-bottom: 12px;
-              }
-              .stat {
-                font-size: 26px;
-                font-weight: 600;
-                margin-top: 8px;
-              }
-              table {
-                width: 100%;
-                border-collapse: collapse;
-                font-size: 14px;
-              }
-              th, td {
-                padding: 8px;
-                border-bottom: 1px solid var(--line);
-                text-align: left;
-              }
-              th {
-                color: var(--muted);
-                font-weight: 600;
-              }
               .quality-badge {
                 padding: 4px 8px;
                 border-radius: 4px;
@@ -1957,18 +1799,18 @@ public final class AnalyticsWebServer {
                 flex-direction: column;
                 gap: 4px;
                 font-size: 12px;
-                color: var(--muted);
+                color: var(--color-secondary);
               }
               .filter-control select,
               .filter-control input {
-                border: 1px solid var(--line);
+                border: 1px solid var(--color-card-border);
                 border-radius: 8px;
                 padding: 6px 8px;
                 font-size: 14px;
                 font-family: inherit;
               }
               .filter-button {
-                background: var(--accent);
+                background: var(--color-plan);
                 color: white;
                 border: none;
                 border-radius: 999px;
@@ -1980,7 +1822,7 @@ public final class AnalyticsWebServer {
           </head>
           <body>
             <header>
-              <h1>Playeranalytics</h1>
+              <h1>Player Analytics</h1>
               <p>Connection and geographic analytics</p>
               <nav class=\"nav\">
                 <a class=\"nav-link\" href=\"/\">Overview</a>
@@ -2027,7 +1869,7 @@ public final class AnalyticsWebServer {
               <section class=\"card card-half\">
                 <div class=\"pill\">Connection Quality</div>
                 <div id=\"quality-stats\">
-                  <p style=\"color: var(--muted); font-size: 14px;\">Loading quality metrics...</p>
+                  <p style=\"color: var(--color-secondary); font-size: 14px;\">Loading quality metrics...</p>
                 </div>
               </section>
               <section class=\"card card-half\">
@@ -2161,13 +2003,13 @@ public final class AnalyticsWebServer {
                         else if (score >= 40) badge = 'quality-fair';
                         
                         const div = document.createElement('div');
-                        div.style.cssText = 'padding: 8px; border-bottom: 1px solid var(--line);';
+                        div.style.cssText = 'padding: 8px; border-bottom: 1px solid var(--color-tables-border);';
                         div.innerHTML = `
                           <div style=\"display: flex; justify-content: space-between; align-items: center;\">
                             <span style=\"font-weight: 600;\">${player.name}</span>
                             <span class=\"quality-badge ${badge}\">${score}/100</span>
                           </div>
-                          <div style=\"font-size: 12px; color: var(--muted); margin-top: 4px;\">
+                          <div style=\"font-size: 12px; color: var(--color-secondary); margin-top: 4px;\">
                             Avg Ping: ${Math.round(quality.avgPing)}ms | Variance: ${Math.round(quality.pingVariance)}ms²
                           </div>
                         `;
@@ -2179,7 +2021,7 @@ public final class AnalyticsWebServer {
                   }
                   
                   if (loaded === 0) {
-                    qualityDiv.innerHTML = '<p style=\"color: var(--muted); font-size: 14px;\">No quality data available</p>';
+                    qualityDiv.innerHTML = '<p style=\"color: var(--color-secondary); font-size: 14px;\">No quality data available</p>';
                   }
                 } catch (err) {
                   console.error('Failed to load connection quality:', err);
@@ -2341,94 +2183,16 @@ public final class AnalyticsWebServer {
           <head>
             <meta charset=\"utf-8\" />
             <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-            <title>Players - Playeranalytics</title>
+            <title>Players | Player Analytics</title>
             <script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>
+            <link rel=\"stylesheet\" href=\"/css/default-colors.css\">
+            <link rel=\"stylesheet\" href=\"/css/main.css\">
             <style>
-              :root {
-                color-scheme: light;
-                --bg: #f6f4ef;
-                --ink: #1f1d1a;
-                --muted: #6f655d;
-                --accent: #d0752f;
-                --card: #ffffff;
-                --line: #e4ddd4;
-              }
-              body {
-                margin: 0;
-                font-family: \"Space Grotesk\", \"IBM Plex Sans\", \"Segoe UI\", sans-serif;
-                background: radial-gradient(circle at top, #fff7ed 0%, var(--bg) 55%);
-                color: var(--ink);
-              }
-              header {
-                padding: 32px 24px 12px;
-              }
-              h1 {
-                margin: 0 0 6px;
-                font-size: 32px;
-                letter-spacing: -0.02em;
-              }
-              p {
-                margin: 0;
-                color: var(--muted);
-              }
-              .nav {
-                display: flex;
-                gap: 12px;
-                flex-wrap: wrap;
-                margin-top: 14px;
-              }
-              .nav-link {
-                text-decoration: none;
-                color: var(--ink);
-                padding: 6px 12px;
-                border-radius: 999px;
-                border: 1px solid var(--line);
-                background: #fff;
-                font-size: 14px;
-                font-weight: 600;
-              }
-              .nav-link.active {
-                background: var(--accent);
-                border-color: var(--accent);
-                color: #fff;
-              }
-              main {
-                display: grid;
-                gap: 18px;
-                padding: 0 24px 32px;
-                grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-              }
-              .card-full { grid-column: 1 / -1; }
-              .card-half { grid-column: span 1; }
-              @media (max-width: 1200px) {
-                .card-half { grid-column: 1 / -1; }
-              }
-              .card {
-                background: var(--card);
-                border: 1px solid var(--line);
-                border-radius: 16px;
-                padding: 16px;
-                box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
-              }
-              table {
-                width: 100%;
-                border-collapse: collapse;
-                font-size: 14px;
-              }
-              th, td {
-                padding: 8px;
-                border-bottom: 1px solid var(--line);
-                text-align: left;
-              }
-              th {
-                color: var(--muted);
-                font-weight: 600;
-              }
               th.sortable { cursor: pointer; user-select: none; position: relative; padding-right: 24px; }
-              th.sortable:hover { color: var(--accent); }
+              th.sortable:hover { color: var(--color-plan); }
               th.sortable::after { content: '⇅'; position: absolute; right: 8px; opacity: 0.3; font-size: 12px; }
-              th.sortable.asc::after { content: '▲'; opacity: 1; color: var(--accent); }
-              th.sortable.desc::after { content: '▼'; opacity: 1; color: var(--accent); }
+              th.sortable.asc::after { content: '▲'; opacity: 1; color: var(--color-plan); }
+              th.sortable.desc::after { content: '▼'; opacity: 1; color: var(--color-plan); }
               .table-controls {
                 display: flex;
                 gap: 12px;
@@ -2440,39 +2204,39 @@ public final class AnalyticsWebServer {
                 flex: 1;
                 min-width: 200px;
                 padding: 8px 12px;
-                border: 1px solid var(--line);
+                border: 1px solid var(--color-card-border);
                 border-radius: 6px;
-                background: var(--bg);
+                background: var(--color-layout-background);
                 color: var(--text);
                 font-size: 14px;
               }
-              .search-input:focus { outline: none; border-color: var(--accent); }
+              .search-input:focus { outline: none; border-color: var(--color-plan); }
               .filter-badge {
                 display: inline-block;
                 padding: 4px 8px;
-                background: rgba(208, 117, 47, 0.15);
+                background: rgba(54, 143, 23, 0.15);
                 border-radius: 4px;
                 font-size: 12px;
-                color: var(--accent);
+                color: var(--color-plan);
               }
               .pill {
                 display: inline-block;
                 padding: 2px 8px;
                 border-radius: 999px;
-                background: rgba(208, 117, 47, 0.12);
-                color: var(--accent);
+                background: rgba(54, 143, 23, 0.12);
+                color: var(--color-plan);
                 font-weight: 600;
               }
             </style>
           </head>
           <body>
             <header>
-              <h1>Playeranalytics</h1>
+              <h1>Player Analytics</h1>
               <p>Player and combat analytics</p>
               <nav class=\"nav\">
                 <a class=\"nav-link\" href=\"/\">Overview</a>
                 <a class=\"nav-link active\" href=\"/players\">Players</a>
-                                <a class=\"nav-link\" href=\"/connections\">Connections</a>
+                <a class=\"nav-link\" href=\"/connections\">Connections</a>
                 <a class=\"nav-link\" href=\"/sessions\">Sessions</a>
                 <a class=\"nav-link\" href=\"/network\">Network</a>
               </nav>
@@ -2595,7 +2359,7 @@ public final class AnalyticsWebServer {
                 <div class=\"pill\">Leaderboards</div>
                 <div style=\"display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));\">
                   <div>
-                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">Most Active (Playtime)</h3>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--color-plan);\">Most Active (Playtime)</h3>
                     <table style=\"margin-top: 8px;\">
                       <thead>
                         <tr>
@@ -2608,7 +2372,7 @@ public final class AnalyticsWebServer {
                     </table>
                   </div>
                   <div>
-                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">Highest K/D Ratio</h3>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--color-plan);\">Highest K/D Ratio</h3>
                     <table style=\"margin-top: 8px;\">
                       <thead>
                         <tr>
@@ -2621,7 +2385,7 @@ public final class AnalyticsWebServer {
                     </table>
                   </div>
                   <div>
-                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">Longest Kill Streak</h3>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--color-plan);\">Longest Kill Streak</h3>
                     <table style=\"margin-top: 8px;\">
                       <thead>
                         <tr>
@@ -2634,7 +2398,7 @@ public final class AnalyticsWebServer {
                     </table>
                   </div>
                   <div>
-                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">Total Kills</h3>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--color-plan);\">Total Kills</h3>
                     <table style=\"margin-top: 8px;\">
                       <thead>
                         <tr>
@@ -2647,7 +2411,7 @@ public final class AnalyticsWebServer {
                     </table>
                   </div>
                   <div>
-                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">PvP Kills</h3>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--color-plan);\">PvP Kills</h3>
                     <table style=\"margin-top: 8px;\">
                       <thead>
                         <tr>
@@ -2660,7 +2424,7 @@ public final class AnalyticsWebServer {
                     </table>
                   </div>
                   <div>
-                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--accent);\">Most Sessions</h3>
+                    <h3 style=\"margin: 8px 0; font-size: 16px; color: var(--color-plan);\">Most Sessions</h3>
                     <table style=\"margin-top: 8px;\">
                       <thead>
                         <tr>
@@ -2752,7 +2516,7 @@ public final class AnalyticsWebServer {
                   const playtimeHours = Math.floor(player.totalPlaytimeSeconds / 3600);
                   const playtimeMinutes = Math.floor((player.totalPlaytimeSeconds % 3600) / 60);
                   const playtimeDisplay = `${playtimeHours}h ${playtimeMinutes}m`;
-                  const playerLink = `<a href="/player/${player.playerUuid}" style="color: var(--accent); text-decoration: none;">${player.playerName}</a>`;
+                  const playerLink = `<a href="/player/${player.playerUuid}" style="color: var(--color-plan); text-decoration: none;">${player.playerName}</a>`;
                   row.innerHTML = `<td>${playerLink}</td><td>${playtimeDisplay}</td><td>${player.lastSeen ?? "-"}</td><td>${player.joins}</td><td>${player.leaves}</td><td>${player.kills}</td><td>${player.deaths}</td><td>${player.kdRatio}</td>`;
                   body.appendChild(row);
                 });
@@ -2895,7 +2659,7 @@ public final class AnalyticsWebServer {
                     const rankStyle = entry.rank === 1 ? 'color: #FFD700; font-weight: bold;' :
                                      entry.rank === 2 ? 'color: #C0C0C0; font-weight: bold;' :
                                      entry.rank === 3 ? 'color: #CD7F32; font-weight: bold;' : '';
-                    const playerLink = `<a href="/player/${entry.player_uuid}" style="color: var(--accent); text-decoration: none;">${entry.player_name}</a>`;
+                    const playerLink = `<a href="/player/${entry.player_uuid}" style="color: var(--color-plan); text-decoration: none;">${entry.player_name}</a>`;
                     row.innerHTML = `<td style="${rankStyle}">${entry.rank}</td><td>${playerLink}</td><td>${leaderboard.formatter(entry.value)}</td>`;
                     tbody.appendChild(row);
                   });
@@ -2948,69 +2712,32 @@ public final class AnalyticsWebServer {
           <head>
             <meta charset=\"utf-8\" />
             <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-            <title>Sessions - Playeranalytics</title>
+            <title>Sessions | Player Analytics</title>
             <script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>
+            <link rel=\"stylesheet\" href=\"/css/default-colors.css\">
+            <link rel=\"stylesheet\" href=\"/css/main.css\">
             <style>
-              :root {
-                color-scheme: light;
-                --bg: #f6f4ef;
-                --ink: #1f1d1a;
-                --muted: #6f655d;
-                --accent: #d0752f;
-                --card: #ffffff;
-                --line: #e4ddd4;
-              }
-              body {
-                margin: 0;
-                font-family: \"Space Grotesk\", \"IBM Plex Sans\", \"Segoe UI\", sans-serif;
-                background: radial-gradient(circle at top, #fff7ed 0%, var(--bg) 55%);
-                color: var(--ink);
-              }
-              header { padding: 32px 24px 12px; }
-              h1 { margin: 0 0 6px; font-size: 32px; letter-spacing: -0.02em; }
-              p { margin: 0; color: var(--muted); }
-              .nav { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
-              .nav-link { text-decoration: none; color: var(--ink); padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: #fff; font-size: 14px; font-weight: 600; }
-              .nav-link.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-              main {
-                display: grid;
-                gap: 18px;
-                padding: 0 24px 32px;
-                grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-              }
-              .card-full { grid-column: 1 / -1; }
-              .card {
-                background: var(--card);
-                border: 1px solid var(--line);
-                border-radius: 16px;
-                padding: 16px;
-                box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
-              }
-              table { width: 100%; border-collapse: collapse; font-size: 14px; }
-              th, td { padding: 8px; border-bottom: 1px solid var(--line); text-align: left; }
-              th { color: var(--muted); font-weight: 600; }
               th.sortable { cursor: pointer; user-select: none; position: relative; padding-right: 24px; }
               th.sortable::after { content: '⇅'; position: absolute; right: 8px; opacity: 0.3; font-size: 12px; }
-              th.sortable.asc::after { content: '▲'; opacity: 1; color: var(--accent); }
-              th.sortable.desc::after { content: '▼'; opacity: 1; color: var(--accent); }
+              th.sortable.asc::after { content: '▲'; opacity: 1; color: var(--color-plan); }
+              th.sortable.desc::after { content: '▼'; opacity: 1; color: var(--color-plan); }
               .table-controls { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
-              .search-input { flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 14px; }
-              .search-input:focus { outline: none; border-color: var(--accent); }
-              .filter-badge { display: inline-block; padding: 4px 8px; background: rgba(208, 117, 47, 0.15); border-radius: 4px; font-size: 12px; color: var(--accent); }
-              .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: rgba(208, 117, 47, 0.12); color: var(--accent); font-weight: 600; }
+              .search-input { flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid var(--color-card-border); border-radius: 6px; background: var(--color-layout-background); color: var(--text); font-size: 14px; }
+              .search-input:focus { outline: none; border-color: var(--color-plan); }
+              .filter-badge { display: inline-block; padding: 4px 8px; background: rgba(54, 143, 23, 0.15); border-radius: 4px; font-size: 12px; color: var(--color-plan); }
+              .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: rgba(54, 143, 23, 0.12); color: var(--color-plan); font-weight: 600; }
             </style>
           </head>
           <body>
             <header>
-              <h1>Playeranalytics</h1>
+              <h1>Player Analytics</h1>
               <p>Session analytics and activity trends</p>
               <nav class=\"nav\">
                 <a class=\"nav-link\" href=\"/\">Overview</a>
                 <a class=\"nav-link\" href=\"/players\">Players</a>
                 <a class=\"nav-link active\" href=\"/sessions\">Sessions</a>
-                                                <a class=\"nav-link\" href=\"/connections\">Connections</a>
-                                <a class=\"nav-link\" href=\"/connections\">Connections</a>
                 <a class=\"nav-link\" href=\"/network\">Network</a>
+                <a class=\"nav-link\" href=\"/connections\">Connections</a>
               </nav>
             </header>
             <main>
@@ -3206,50 +2933,25 @@ public final class AnalyticsWebServer {
           <head>
             <meta charset=\"utf-8\" />
             <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-            <title>Network - Playeranalytics</title>
+            <title>Network | Player Analytics</title>
+            <link rel=\"stylesheet\" href=\"/css/default-colors.css\">
+            <link rel=\"stylesheet\" href=\"/css/main.css\">
             <style>
-              :root {
-                color-scheme: light;
-                --bg: #f6f4ef;
-                --ink: #1f1d1a;
-                --muted: #6f655d;
-                --accent: #d0752f;
-                --card: #ffffff;
-                --line: #e4ddd4;
-              }
-              body { margin: 0; font-family: \"Space Grotesk\", \"IBM Plex Sans\", \"Segoe UI\", sans-serif; background: radial-gradient(circle at top, #fff7ed 0%, var(--bg) 55%); color: var(--ink); }
-              header { padding: 32px 24px 12px; }
-              h1 { margin: 0 0 6px; font-size: 32px; letter-spacing: -0.02em; }
-              p { margin: 0; color: var(--muted); }
-              .nav { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
-              .nav-link { text-decoration: none; color: var(--ink); padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: #fff; font-size: 14px; font-weight: 600; }
-              .nav-link.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-              main { display: grid; gap: 18px; padding: 0 24px 32px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
-              .card-full { grid-column: 1 / -1; }
-              .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08); }
-              .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: rgba(208, 117, 47, 0.12); color: var(--accent); font-weight: 600; }
-              .overview-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 16px; }
-              .overview-metric { background: rgba(208, 117, 47, 0.08); border-radius: 12px; padding: 16px; }
-              .overview-metric-label { font-size: 12px; opacity: 0.8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
-              .overview-metric-value { font-size: 28px; font-weight: 700; line-height: 1; }
-              table { width: 100%; border-collapse: collapse; font-size: 14px; }
-              th, td { padding: 8px; border-bottom: 1px solid var(--line); text-align: left; }
-              th { color: var(--muted); font-weight: 600; }
               .network-controls { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
-              .network-input { flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 14px; }
-              .network-button { padding: 8px 12px; border-radius: 6px; border: none; background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
+              .network-input { flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid var(--color-card-border); border-radius: 6px; background: var(--color-layout-background); font-size: 14px; }
+              .network-button { padding: 8px 12px; border-radius: 6px; border: none; background: var(--color-plan); color: #fff; font-weight: 600; cursor: pointer; }
             </style>
           </head>
           <body>
             <header>
-              <h1>Playeranalytics</h1>
+              <h1>Player Analytics</h1>
               <p>Network overview</p>
               <nav class=\"nav\">
                 <a class=\"nav-link\" href=\"/\">Overview</a>
                 <a class=\"nav-link\" href=\"/players\">Players</a>
                 <a class=\"nav-link\" href=\"/sessions\">Sessions</a>
                 <a class=\"nav-link active\" href=\"/network\">Network</a>
-                              <a class=\"nav-link\" href=\"/connections\">Connections</a>
+                <a class=\"nav-link\" href=\"/connections\">Connections</a>
               </nav>
             </header>
             <main>
@@ -3391,37 +3093,12 @@ public final class AnalyticsWebServer {
           <head>
             <meta charset=\"utf-8\" />
             <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-            <title>Player Profile - Playeranalytics</title>
+            <title>Player Profile | Player Analytics</title>
             <script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>
+            <link rel=\"stylesheet\" href=\"/css/default-colors.css\">
+            <link rel=\"stylesheet\" href=\"/css/main.css\">
             <style>
-              * { margin: 0; padding: 0; box-sizing: border-box; }
-              :root {
-                color-scheme: light;
-                --bg: #f6f4ef;
-                --ink: #1f1d1a;
-                --muted: #6f655d;
-                --accent: #d0752f;
-                --card: #ffffff;
-                --line: #e4ddd4;
-              }
-              body {
-                font-family: "Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif;
-                background: var(--bg);
-                color: var(--ink);
-              }
-              header {
-                padding: 24px;
-                background: var(--card);
-                border-bottom: 1px solid var(--line);
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-              }
-              h1 { font-size: 28px; }
-              h2 { font-size: 18px; margin-top: 16px; margin-bottom: 8px; }
-              a { color: var(--accent); text-decoration: none; }
-              a:hover { text-decoration: underline; }
-              main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+              * { box-sizing: border-box; }
               .stats-grid {
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -3429,24 +3106,16 @@ public final class AnalyticsWebServer {
                 margin-bottom: 24px;
               }
               .stat-card {
-                background: var(--card);
-                border: 1px solid var(--line);
+                background: var(--color-card-background);
+                border: 1px solid var(--color-card-border);
                 border-radius: 12px;
                 padding: 16px;
               }
-              .stat-label { color: var(--muted); font-size: 12px; }
+              .stat-label { color: var(--color-secondary); font-size: 12px; }
               .stat-value { font-size: 24px; font-weight: bold; margin-top: 4px; }
-              table {
-                width: 100%;
-                background: var(--card);
-                border: 1px solid var(--line);
-                border-radius: 12px;
-                border-collapse: collapse;
-                margin: 20px 0;
-              }
-              th { background: #f0ebe7; font-weight: 600; padding: 12px; text-align: left; }
-              td { padding: 12px; border-top: 1px solid var(--line); }
-              tr:hover { background: #faf9f7; }
+              a { color: var(--color-plan); text-decoration: none; }
+              a:hover { text-decoration: underline; }
+              tr:hover { background: var(--color-pale-grey); }
             </style>
           </head>
           <body>
