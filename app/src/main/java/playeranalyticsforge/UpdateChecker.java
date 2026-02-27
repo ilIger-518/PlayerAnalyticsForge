@@ -50,23 +50,34 @@ public final class UpdateChecker {
         }
     }
 
-    private static void checkForUpdates() {
+    public static UpdateResult checkNow() {
         try {
             String latest = fetchLatestVersion();
             if (latest == null || latest.isBlank()) {
-                PlayeranalyticsForgeMod.LOGGER.warn("Update check failed: could not determine latest version");
-                return;
+                return new UpdateResult(false, "Failed to fetch latest version", null, null);
             }
 
             String current = PlayeranalyticsForgeMod.MOD_VERSION;
             int compare = compareVersions(current, latest);
             if (compare < 0) {
-                PlayeranalyticsForgeMod.LOGGER.info("Update available: {} (current {})", latest, current);
+                return new UpdateResult(true, "Update available", current, latest);
+            } else if (compare > 0) {
+                return new UpdateResult(false, "Running newer version", current, latest);
             } else {
-                PlayeranalyticsForgeMod.LOGGER.debug("Update check: current version {} is up to date", current);
+                return new UpdateResult(false, "Up to date", current, latest);
             }
         } catch (Exception ex) {
             PlayeranalyticsForgeMod.LOGGER.warn("Update check failed", ex);
+            return new UpdateResult(false, "Error: " + ex.getMessage(), null, null);
+        }
+    }
+
+    private static void checkForUpdates() {
+        UpdateResult result = checkNow();
+        if (result.updateAvailable) {
+            PlayeranalyticsForgeMod.LOGGER.info("Update available: {} (current {})", result.latestVersion, result.currentVersion);
+        } else {
+            PlayeranalyticsForgeMod.LOGGER.debug("Update check: {}", result.message);
         }
     }
 
@@ -143,5 +154,19 @@ public final class UpdateChecker {
             }
         }
         return parts;
+    }
+
+    public static final class UpdateResult {
+        public final boolean updateAvailable;
+        public final String message;
+        public final String currentVersion;
+        public final String latestVersion;
+
+        public UpdateResult(boolean updateAvailable, String message, String currentVersion, String latestVersion) {
+            this.updateAvailable = updateAvailable;
+            this.message = message;
+            this.currentVersion = currentVersion;
+            this.latestVersion = latestVersion;
+        }
     }
 }

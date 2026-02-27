@@ -55,6 +55,10 @@ public final class AnalyticsCommands {
                 .then(Commands.literal("churn")
                     .executes(context -> churnAnalysisCommand(context.getSource()))
                 )
+                .then(Commands.literal("updatecheck")
+                    .requires(source -> source.hasPermission(2))
+                    .executes(context -> updateCheckCommand(context.getSource()))
+                )
         );
     }
 
@@ -533,5 +537,50 @@ public final class AnalyticsCommands {
             source.sendFailure(Component.literal("Failed to fetch churn analysis. Check server logs."));
             return 0;
         }
+    }
+
+    @SuppressWarnings("null")
+    private static int updateCheckCommand(CommandSourceStack source) {
+        source.sendSuccess(() -> Component.literal("Checking for updates...")
+            .withStyle(ChatFormatting.YELLOW), false);
+
+        UpdateChecker.UpdateResult result = UpdateChecker.checkNow();
+
+        if (result.updateAvailable) {
+            source.sendSuccess(() -> Component.literal("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                .withStyle(ChatFormatting.DARK_PURPLE, ChatFormatting.BOLD), false);
+            source.sendSuccess(() -> Component.literal("🔔 Update Available!")
+                .withStyle(ChatFormatting.GREEN, ChatFormatting.BOLD), false);
+            source.sendSuccess(() -> Component.literal("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                .withStyle(ChatFormatting.DARK_PURPLE, ChatFormatting.BOLD), false);
+            source.sendSuccess(() -> Component.literal("Current: ")
+                .withStyle(ChatFormatting.AQUA)
+                .append(Component.literal(result.currentVersion).withStyle(ChatFormatting.WHITE)), false);
+            source.sendSuccess(() -> Component.literal("Latest: ")
+                .withStyle(ChatFormatting.AQUA)
+                .append(Component.literal(result.latestVersion).withStyle(ChatFormatting.GREEN)), false);
+            source.sendSuccess(() -> Component.literal("Download: ")
+                .withStyle(ChatFormatting.AQUA)
+                .append(Component.literal("https://github.com/ilIger-518/PlayerAnalyticsForge/releases")
+                    .withStyle(ChatFormatting.BLUE, ChatFormatting.UNDERLINE)), false);
+            source.sendSuccess(() -> Component.literal("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                .withStyle(ChatFormatting.DARK_PURPLE, ChatFormatting.BOLD), false);
+            source.sendSuccess(() -> Component.literal("⚠ Stop the server to update the mod.")
+                .withStyle(ChatFormatting.YELLOW, ChatFormatting.ITALIC), false);
+        } else {
+            source.sendSuccess(() -> Component.literal("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                .withStyle(ChatFormatting.DARK_PURPLE, ChatFormatting.BOLD), false);
+            source.sendSuccess(() -> Component.literal("✓ " + result.message)
+                .withStyle(ChatFormatting.GREEN), false);
+            if (result.currentVersion != null) {
+                source.sendSuccess(() -> Component.literal("Version: ")
+                    .withStyle(ChatFormatting.AQUA)
+                    .append(Component.literal(result.currentVersion).withStyle(ChatFormatting.WHITE)), false);
+            }
+            source.sendSuccess(() -> Component.literal("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                .withStyle(ChatFormatting.DARK_PURPLE, ChatFormatting.BOLD), false);
+        }
+
+        return 1;
     }
 }
