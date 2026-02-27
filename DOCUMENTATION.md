@@ -259,7 +259,7 @@ config/playeranalytics-common.toml
 
 PlayerAnalytics can send real-time event notifications to Discord using a bot token. This allows server admins and moderators to stay informed about player activity without accessing the web dashboard.
 
-**Status**: Discord bot login works, but embed sending is currently blocked by a JDA beta method mismatch (see troubleshooting).
+**Status**: Fully functional with proper Gateway Intents enabled. The bot requires MESSAGE CONTENT INTENT and GUILD MESSAGES intents to be enabled in the Discord Developer Portal.
 
 ### Setting Up the Discord Bot
 
@@ -268,10 +268,21 @@ PlayerAnalytics can send real-time event notifications to Discord using a bot to
   - Create a new application
   - Add a **Bot**
   - Copy the **Bot Token**
+  - **IMPORTANT**: Enable the following **Privileged Gateway Intents**:
+    - Go to **Bot** settings
+    - Scroll down to **Privileged Gateway Intents**
+    - Enable **MESSAGE CONTENT INTENT** (required for chat bridging)
+    - Enable **GUILD MESSAGES** (required for receiving messages)
+    - Save changes
 
 2. **Invite the Bot to Your Server**:
-  - Generate an invite with `Send Messages` and `Embed Links` permissions
+  - Generate an invite URL with the following permissions:
+    - **Send Messages** (required for all notifications)
+    - **Embed Links** (required for rich notification embeds)
+    - **Read Messages/View Channels** (required to see messages)
+    - **Read Message History** (required for chat bridging)
   - Add the bot to your Discord server
+  - Ensure the bot's role has access to the target channel
 
 3. **Configure the Mod**:
   - Open `config/playeranalytics-common.toml`
@@ -279,6 +290,21 @@ PlayerAnalytics can send real-time event notifications to Discord using a bot to
   - Set `enabled = true`
   - Paste your bot token into `botToken = "..."`
   - Set your target channel ID in `channelId = "..."`
+  - Set your guild/server ID in `guildId = "..."` (recommended)
+
+### Required Bot Permissions Summary
+
+**In Discord Developer Portal** (Privileged Gateway Intents):
+- ✅ **MESSAGE CONTENT INTENT** - Enables reading message content for chat bridging
+- ✅ **GUILD MESSAGES** - Enables receiving message events from guilds
+
+**In Discord Server** (Bot Role Permissions):
+- ✅ **Send Messages** - Required for all notifications
+- ✅ **Embed Links** - Required for formatted notifications
+- ✅ **View Channel** - Required to access the target channel
+- ✅ **Read Message History** - Required for Discord→Minecraft chat bridge
+
+**Note**: MESSAGE CONTENT INTENT is a *privileged intent* and may require verification for bots in 100+ servers. For private servers, simply enable it in the Developer Portal.
 
 ### Discord Configuration
 

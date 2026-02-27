@@ -76,8 +76,36 @@ public final class DiscordIntegration {
         try {
             ClassLoader loader = jdaClassLoader != null ? jdaClassLoader : Thread.currentThread().getContextClassLoader();
             Class<?> jdaBuilderClass = loader.loadClass("net.dv8tion.jda.api.JDABuilder");
-            java.lang.reflect.Method createDefaultMethod = jdaBuilderClass.getMethod("createDefault", String.class);
-            Object builder = createDefaultMethod.invoke(null, token);
+            Class<?> gatewayIntentClass = loader.loadClass("net.dv8tion.jda.api.requests.GatewayIntent");
+            
+            // Get GatewayIntent enum values
+            java.lang.reflect.Method valuesMethod = gatewayIntentClass.getMethod("values");
+            Object[] intents = (Object[]) valuesMethod.invoke(null);
+            
+            // Find GUILD_MESSAGES and MESSAGE_CONTENT intents
+            Object guildMessagesIntent = null;
+            Object messageContentIntent = null;
+            for (Object intent : intents) {
+                String name = intent.toString();
+                if ("GUILD_MESSAGES".equals(name)) {
+                    guildMessagesIntent = intent;
+                } else if ("MESSAGE_CONTENT".equals(name)) {
+                    messageContentIntent = intent;
+                }
+            }
+            
+            // Create builder with required intents
+            java.lang.reflect.Method createLightMethod = jdaBuilderClass.getMethod("createLight", String.class, java.util.Collection.class);
+            java.util.List<Object> intentsList = new java.util.ArrayList<>();
+            if (guildMessagesIntent != null) {
+                intentsList.add(guildMessagesIntent);
+            }
+            if (messageContentIntent != null) {
+                intentsList.add(messageContentIntent);
+            }
+            Object builder = createLightMethod.invoke(null, token, intentsList);
+            
+            PlayeranalyticsForgeMod.LOGGER.info("Discord bot builder created with MESSAGE_CONTENT and GUILD_MESSAGES intents");
             
             // Add message listener if chat bridging is enabled
             if (AnalyticsConfig.DISCORD_BRIDGE_CHAT.get()) {
@@ -90,7 +118,7 @@ public final class DiscordIntegration {
                     );
                     java.lang.reflect.Method addEventListenersMethod = builder.getClass().getMethod("addEventListeners", Object[].class);
                     addEventListenersMethod.invoke(builder, (Object) new Object[]{listener});
-                    PlayeranalyticsForgeMod.LOGGER.info("Discord chat bridge enabled");
+                    PlayeranalyticsForgeMod.LOGGER.info("Discord chat bridge listener registered");
                 } catch (Exception ex) {
                     PlayeranalyticsForgeMod.LOGGER.warn("Failed to enable Discord chat bridge: {}", ex.getMessage());
                 }
@@ -156,6 +184,8 @@ public final class DiscordIntegration {
 
         Object channel = getTargetChannel();
         if (channel == null) {
+            PlayeranalyticsForgeMod.LOGGER.error("Discord channel not found! Channel ID: {}. Make sure the bot has access to the channel.", 
+                AnalyticsConfig.DISCORD_CHANNEL_ID.get());
             return;
         }
 
@@ -201,10 +231,14 @@ public final class DiscordIntegration {
             setColorMethod.invoke(embed, colorObj);
             
             // Set timestamp
-            Class<?> instantClass = Class.forName("java.time.Instant");
-            Object now = instantClass.getMethod("now").invoke(null);
-            java.lang.reflect.Method setTimestampMethod = embedBuilderClass.getMethod("setTimestamp", instantClass);
-            setTimestampMethod.invoke(embed, now);
+            try {
+                Class<?> instantClass = Class.forName("java.time.Instant");
+                Object now = instantClass.getMethod("now").invoke(null);
+                java.lang.reflect.Method setTimestampMethod = embedBuilderClass.getMethod("setTimestamp", instantClass);
+                setTimestampMethod.invoke(embed, now);
+            } catch (NoSuchMethodException e) {
+                PlayeranalyticsForgeMod.LOGGER.debug("setTimestamp method not found, skipping timestamp");
+            }
             
             // Set footer
             java.lang.reflect.Method setFooterMethod = embedBuilderClass.getMethod("setFooter", String.class);
@@ -218,13 +252,26 @@ public final class DiscordIntegration {
             java.lang.reflect.Method sendMessageEmbedsMethod = channel.getClass().getMethod("sendMessageEmbeds", java.util.List.class);
             Object action = sendMessageEmbedsMethod.invoke(channel, java.util.Arrays.asList(builtEmbed));
             
-            // Queue it (fire and forget)
-            java.lang.reflect.Method queueMethod = action.getClass().getMethod("queue");
-            queueMethod.invoke(action);
+            // Queue with error callback
+            Class<?> consumerClass = loader.loadClass("java.util.function.Consumer");
+            Object errorCallback = java.lang.reflect.Proxy.newProxyInstance(
+                loader,
+                new Class<?>[]{consumerClass},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("accept") && args != null && args.length > 0) {
+                        Throwable error = (Throwable) args[0];
+                        PlayeranalyticsForgeMod.LOGGER.error("Failed to send Discord embed: {}", error.getMessage(), error);
+                    }
+                    return null;
+                }
+            );
             
-            PlayeranalyticsForgeMod.LOGGER.debug("Discord embed queued successfully");
+            java.lang.reflect.Method queueMethod = action.getClass().getMethod("queue", consumerClass, consumerClass);
+            queueMethod.invoke(action, null, errorCallback);
+            
+            PlayeranalyticsForgeMod.LOGGER.info("Discord embed queued: {}", title);
         } catch (Exception ex) {
-            PlayeranalyticsForgeMod.LOGGER.warn("Failed to send Discord embed: {}", ex.getClass().getSimpleName() + ": " + ex.getMessage());
+            PlayeranalyticsForgeMod.LOGGER.error("Failed to send Discord embed: {}", ex.getMessage(), ex);
         }
     }
 
@@ -356,7 +403,7 @@ public final class DiscordIntegration {
             Object channel = getTextChannelByIdMethod.invoke(jda, channelId);
 
             if (channel == null) {
-                PlayeranalyticsForgeMod.LOGGER.debug("Discord channel not found: {}", channelId);
+                PlayeranalyticsForgeMod.LOGGER.error("Discord channel not found! Channel ID: {}. Make sure the bot has access to the channel.", channelId);
                 return;
             }
 
@@ -364,12 +411,27 @@ public final class DiscordIntegration {
             String formattedMessage = "**[" + escapeMarkdown(playerName) + "]** " + escapeMarkdown(message);
             java.lang.reflect.Method sendMessageMethod = channel.getClass().getMethod("sendMessage", String.class);
             Object action = sendMessageMethod.invoke(channel, formattedMessage);
-            java.lang.reflect.Method queueMethod = action.getClass().getMethod("queue");
-            queueMethod.invoke(action);
+            
+            // Queue with error callback
+            Class<?> consumerClass = loader.loadClass("java.util.function.Consumer");
+            Object errorCallback = java.lang.reflect.Proxy.newProxyInstance(
+                loader,
+                new Class<?>[]{consumerClass},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("accept") && args != null && args.length > 0) {
+                        Throwable error = (Throwable) args[0];
+                        PlayeranalyticsForgeMod.LOGGER.error("Failed to send Discord message: {}", error.getMessage(), error);
+                    }
+                    return null;
+                }
+            );
+            
+            java.lang.reflect.Method queueMethod = action.getClass().getMethod("queue", consumerClass, consumerClass);
+            queueMethod.invoke(action, null, errorCallback);
 
-            PlayeranalyticsForgeMod.LOGGER.debug("Sent chat message to Discord: {}", formattedMessage);
+            PlayeranalyticsForgeMod.LOGGER.info("Chat message queued for Discord: [{}] {}", playerName, message);
         } catch (Throwable ex) {
-            PlayeranalyticsForgeMod.LOGGER.debug("Failed to send chat message to Discord: {}", ex.getMessage());
+            PlayeranalyticsForgeMod.LOGGER.error("Failed to send chat message to Discord", ex);
         }
     }
 

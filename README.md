@@ -17,8 +17,11 @@ Join/leave events are recorded to a local SQLite database.
 This mod can send notifications to a Discord channel using a bot token (not webhooks).
 
 1. Create a bot in the Discord Developer Portal and add it to your server.
-2. Give it permissions to Send Messages and Embed Links in the target channel.
-3. Configure the Discord section in app/run/config/playeranalytics-common.toml:
+2. **Enable Privileged Gateway Intents** in Bot settings:
+  - **MESSAGE CONTENT INTENT** (required)
+  - **GUILD MESSAGES** (required)
+3. Give it permissions to Send Messages, Embed Links, and View Channel in the target channel.
+4. Configure the Discord section in app/run/config/playeranalytics-common.toml:
 
 ```toml
 [playeranalytics.discord]
@@ -44,8 +47,12 @@ This mod can send notifications to a Discord channel using a bot token (not webh
 
 Notes:
 - The bot uses JDA and loads runtime libraries from run/libs during dev.
-- If messages do not appear, re-check channel permissions and IDs.
-- Known issue: JDA beta may log NoSuchMethodException for EmbedBuilder.setTimestamp; embeds will not send until fixed.
+- **IMPORTANT**: MESSAGE CONTENT INTENT must be enabled in Discord Developer Portal for the bot to work
+- If messages still do not appear, verify:
+  - Gateway intents are enabled in Developer Portal
+  - Bot has Send Messages permission in the channel
+  - channelId and guildId are correct
+  - Bot is online (green status in Discord)
 
 ## Dev runtime outputs
 When running the dev client, Forge writes runtime files under app/run/. This is ignored by git.
