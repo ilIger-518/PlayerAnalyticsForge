@@ -181,8 +181,16 @@ config/playeranalytics-common.toml
 
 #### Security Configuration
 
+Access token can be supplied in any of these ways:
+- `Authorization: Bearer <token>` header
+- `X-Access-Token: <token>` header
+- `?token=<token>` query parameter
+
 ```toml
 [playeranalytics.security]
+  # Enable or disable all security checks for the web server
+  securityEnabled = true
+
   # Require authentication for web dashboard access
   requireAuth = false
   

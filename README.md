@@ -13,6 +13,23 @@ Two JAR files are provided in each release:
 
 **For server deployment, always use the `-all.jar` file** to ensure all dependencies are included and the mod works immediately without requiring manual setup.
 
+## Web security
+Security enforcement can be toggled in the config. When enabled, the web UI can require an access token and/or an IP allowlist.
+
+Access token can be supplied in any of these ways:
+- `Authorization: Bearer <token>` header
+- `X-Access-Token: <token>` header
+- `?token=<token>` query parameter
+
+```toml
+[playeranalytics.security]
+  # Enable or disable all security checks for the web server
+  securityEnabled = true
+  requireAuth = false
+  accessToken = ""
+  ipAllowlist = []
+```
+
 ## Server-side only
 This mod is intended to run on the server only. Players do not need to install it on their client to join the server.
 

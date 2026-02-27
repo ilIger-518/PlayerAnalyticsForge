@@ -17,7 +17,8 @@ public final class AnalyticsConfig {
     public static final ForgeConfigSpec.BooleanValue WEB_SERVER_ENABLED;
     
     // Security Configuration
-    public static final ForgeConfigSpec.BooleanValue REQUIRE_AUTH;
+        public static final ForgeConfigSpec.BooleanValue SECURITY_ENABLED;
+        public static final ForgeConfigSpec.BooleanValue REQUIRE_AUTH;
     public static final ForgeConfigSpec.ConfigValue<String> ACCESS_TOKEN;
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> IP_ALLOWLIST;
     
@@ -95,6 +96,10 @@ public final class AnalyticsConfig {
         BUILDER.comment("Security Configuration")
                 .push("security");
         
+        SECURITY_ENABLED = BUILDER
+                .comment("Enable security enforcement for the web server (auth + IP allowlist)")
+                .define("securityEnabled", true);
+
         REQUIRE_AUTH = BUILDER
                 .comment("Require authentication token for web dashboard access")
                 .define("requireAuth", false);

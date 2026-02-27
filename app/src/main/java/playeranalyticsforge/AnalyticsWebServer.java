@@ -7,10 +7,13 @@ import com.sun.net.httpserver.HttpServer;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public final class AnalyticsWebServer {
@@ -43,46 +46,46 @@ public final class AnalyticsWebServer {
                 return;
             }
 
-            server.createContext("/", new IndexHandler());
-            server.createContext("/players", new PlayersPageHandler());
-            server.createContext("/sessions", new SessionsPageHandler());
-            server.createContext("/network", new NetworkPageHandler());
-            server.createContext("/connections", new ConnectionsPageHandler());
-            server.createContext("/api/summary", exchange -> handleJson(exchange, PlayerAnalyticsDb.getSummaryJson()));
-            server.createContext("/api/events", exchange -> handleJson(exchange, PlayerAnalyticsDb.getRecentEventsJson(readLimit(exchange))));
-            server.createContext("/api/players", exchange -> handleJson(exchange, PlayerAnalyticsDb.getPlayersJson(readLimit(exchange))));
-            server.createContext("/api/kills", exchange -> handleJson(exchange, PlayerAnalyticsDb.getKillDetailsJson(readLimit(exchange))));
-            server.createContext("/api/sessions", exchange -> handleJson(exchange, PlayerAnalyticsDb.getSessionsJson(readLimit(exchange))));
-            server.createContext("/api/playtime", exchange -> handleJson(exchange, PlayerAnalyticsDb.getPlaytimeDetailsJson()));
-            server.createContext("/api/metrics", exchange -> handleJson(exchange, PlayerAnalyticsDb.getServerMetricsJson()));
-            server.createContext("/api/metrics/history", exchange -> handleJson(exchange, PlayerAnalyticsDb.getMetricsHistoryJson(readLimit(exchange))));
-            server.createContext("/api/combat", exchange -> handleJson(exchange, PlayerAnalyticsDb.getCombatStatsJson()));
-            server.createContext("/api/combat/trends", exchange -> handleJson(exchange, PlayerAnalyticsDb.getCombatTrendsJson(readDays(exchange, 30, 365))));
-            server.createContext("/api/weapons", exchange -> handleJson(exchange, PlayerAnalyticsDb.getWeaponStatsJson()));
-            server.createContext("/api/combat/deaths/", new DeathCausesHandler());
-            server.createContext("/api/combat/matrix/", new KillMatrixHandler());
-            server.createContext("/api/activity/trends", exchange -> handleJson(exchange, PlayerAnalyticsDb.getActivityTrendsJson(readLimit(exchange))));
-            server.createContext("/api/activity/hourly", exchange -> handleJson(exchange, PlayerAnalyticsDb.getHourlyActivityJson()));
-            server.createContext("/api/sessions/insights", exchange -> handleJson(exchange, PlayerAnalyticsDb.getSessionInsightsJson()));
-            server.createContext("/api/players/online", exchange -> handleJson(exchange, PlayerAnalyticsDb.getOnlinePlayersJson()));
-            server.createContext("/api/worlds", exchange -> handleJson(exchange, PlayerAnalyticsDb.getWorldDistributionJson()));
-            server.createContext("/api/world/", new WorldHandler());
-            server.createContext("/api/network/stats/", new NetworkStatsHandler());
-            server.createContext("/api/network/comparison/", new ServerComparisonHandler());
-            server.createContext("/api/player/servers/", new PlayerServerHistoryHandler());
-            server.createContext("/api/player/connections/", new PlayerConnectionsHandler());
-            server.createContext("/api/player/ping/", new PlayerPingHandler());
-            server.createContext("/api/player/username-history/", new UsernameHistoryHandler());
-            server.createContext("/api/player/connection-stats/", new ConnectionStatsHandler());
-            server.createContext("/api/player/connection-quality/", new ConnectionQualityHandler());
-            server.createContext("/api/geo/stats", new GeoStatsHandler());
-            server.createContext("/api/geo/ping-stats", new GeoPingStatsHandler());
-            server.createContext("/api/leaderboard/", new LeaderboardHandler());
-            server.createContext("/api/player/", new PlayerHandler());
-            server.createContext("/api/churn/analysis", exchange -> handleJson(exchange, PlayerAnalyticsDb.getChurnAnalysisJson()));
-            server.createContext("/api/churn/players/", new ChurnedPlayersHandler());
-            server.createContext("/api/churn/at-risk", exchange -> handleJson(exchange, PlayerAnalyticsDb.getAtRiskPlayersJson()));
-            server.createContext("/player/", new PlayerPageHandler());
+            createContextWithSecurity(server, "/", new IndexHandler());
+            createContextWithSecurity(server, "/players", new PlayersPageHandler());
+            createContextWithSecurity(server, "/sessions", new SessionsPageHandler());
+            createContextWithSecurity(server, "/network", new NetworkPageHandler());
+            createContextWithSecurity(server, "/connections", new ConnectionsPageHandler());
+            createContextWithSecurity(server, "/api/summary", exchange -> handleJson(exchange, PlayerAnalyticsDb.getSummaryJson()));
+            createContextWithSecurity(server, "/api/events", exchange -> handleJson(exchange, PlayerAnalyticsDb.getRecentEventsJson(readLimit(exchange))));
+            createContextWithSecurity(server, "/api/players", exchange -> handleJson(exchange, PlayerAnalyticsDb.getPlayersJson(readLimit(exchange))));
+            createContextWithSecurity(server, "/api/kills", exchange -> handleJson(exchange, PlayerAnalyticsDb.getKillDetailsJson(readLimit(exchange))));
+            createContextWithSecurity(server, "/api/sessions", exchange -> handleJson(exchange, PlayerAnalyticsDb.getSessionsJson(readLimit(exchange))));
+            createContextWithSecurity(server, "/api/playtime", exchange -> handleJson(exchange, PlayerAnalyticsDb.getPlaytimeDetailsJson()));
+            createContextWithSecurity(server, "/api/metrics", exchange -> handleJson(exchange, PlayerAnalyticsDb.getServerMetricsJson()));
+            createContextWithSecurity(server, "/api/metrics/history", exchange -> handleJson(exchange, PlayerAnalyticsDb.getMetricsHistoryJson(readLimit(exchange))));
+            createContextWithSecurity(server, "/api/combat", exchange -> handleJson(exchange, PlayerAnalyticsDb.getCombatStatsJson()));
+            createContextWithSecurity(server, "/api/combat/trends", exchange -> handleJson(exchange, PlayerAnalyticsDb.getCombatTrendsJson(readDays(exchange, 30, 365))));
+            createContextWithSecurity(server, "/api/weapons", exchange -> handleJson(exchange, PlayerAnalyticsDb.getWeaponStatsJson()));
+            createContextWithSecurity(server, "/api/combat/deaths/", new DeathCausesHandler());
+            createContextWithSecurity(server, "/api/combat/matrix/", new KillMatrixHandler());
+            createContextWithSecurity(server, "/api/activity/trends", exchange -> handleJson(exchange, PlayerAnalyticsDb.getActivityTrendsJson(readLimit(exchange))));
+            createContextWithSecurity(server, "/api/activity/hourly", exchange -> handleJson(exchange, PlayerAnalyticsDb.getHourlyActivityJson()));
+            createContextWithSecurity(server, "/api/sessions/insights", exchange -> handleJson(exchange, PlayerAnalyticsDb.getSessionInsightsJson()));
+            createContextWithSecurity(server, "/api/players/online", exchange -> handleJson(exchange, PlayerAnalyticsDb.getOnlinePlayersJson()));
+            createContextWithSecurity(server, "/api/worlds", exchange -> handleJson(exchange, PlayerAnalyticsDb.getWorldDistributionJson()));
+            createContextWithSecurity(server, "/api/world/", new WorldHandler());
+            createContextWithSecurity(server, "/api/network/stats/", new NetworkStatsHandler());
+            createContextWithSecurity(server, "/api/network/comparison/", new ServerComparisonHandler());
+            createContextWithSecurity(server, "/api/player/servers/", new PlayerServerHistoryHandler());
+            createContextWithSecurity(server, "/api/player/connections/", new PlayerConnectionsHandler());
+            createContextWithSecurity(server, "/api/player/ping/", new PlayerPingHandler());
+            createContextWithSecurity(server, "/api/player/username-history/", new UsernameHistoryHandler());
+            createContextWithSecurity(server, "/api/player/connection-stats/", new ConnectionStatsHandler());
+            createContextWithSecurity(server, "/api/player/connection-quality/", new ConnectionQualityHandler());
+            createContextWithSecurity(server, "/api/geo/stats", new GeoStatsHandler());
+            createContextWithSecurity(server, "/api/geo/ping-stats", new GeoPingStatsHandler());
+            createContextWithSecurity(server, "/api/leaderboard/", new LeaderboardHandler());
+            createContextWithSecurity(server, "/api/player/", new PlayerHandler());
+            createContextWithSecurity(server, "/api/churn/analysis", exchange -> handleJson(exchange, PlayerAnalyticsDb.getChurnAnalysisJson()));
+            createContextWithSecurity(server, "/api/churn/players/", new ChurnedPlayersHandler());
+            createContextWithSecurity(server, "/api/churn/at-risk", exchange -> handleJson(exchange, PlayerAnalyticsDb.getAtRiskPlayersJson()));
+            createContextWithSecurity(server, "/player/", new PlayerPageHandler());
             server.setExecutor(null);
             server.start();
             PlayeranalyticsForgeMod.LOGGER.info("Analytics web UI running at http://{}:{}", host, port);
@@ -98,6 +101,168 @@ public final class AnalyticsWebServer {
             }
         }
     }
+
+      private static void createContextWithSecurity(HttpServer server, String path, HttpHandler handler) {
+        server.createContext(path, guarded(handler));
+      }
+
+      private static HttpHandler guarded(HttpHandler handler) {
+        return exchange -> {
+          if (!isRequestAllowed(exchange)) {
+            return;
+          }
+          handler.handle(exchange);
+        };
+      }
+
+      private static boolean isRequestAllowed(HttpExchange exchange) throws IOException {
+        if (!AnalyticsConfig.SECURITY_ENABLED.get()) {
+          return true;
+        }
+        if (!isIpAllowed(exchange)) {
+          sendPlainText(exchange, 403, "Forbidden");
+          return false;
+        }
+        if (!isAuthorized(exchange)) {
+          sendPlainText(exchange, 401, "Unauthorized");
+          return false;
+        }
+        return true;
+      }
+
+      private static boolean isIpAllowed(HttpExchange exchange) {
+        List<? extends String> allowlist = AnalyticsConfig.IP_ALLOWLIST.get();
+        if (allowlist == null || allowlist.isEmpty()) {
+          return true;
+        }
+        InetAddress remote = getRemoteAddress(exchange);
+        if (remote == null) {
+          return false;
+        }
+        for (String entry : allowlist) {
+          if (entry == null) {
+            continue;
+          }
+          String trimmed = entry.trim();
+          if (trimmed.isEmpty()) {
+            continue;
+          }
+          if (trimmed.contains("/")) {
+            if (isInCidr(remote, trimmed)) {
+              return true;
+            }
+            continue;
+          }
+          InetAddress allowed = parseAddress(trimmed);
+          if (allowed != null && allowed.equals(remote)) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      private static InetAddress getRemoteAddress(HttpExchange exchange) {
+        InetSocketAddress socketAddress = exchange.getRemoteAddress();
+        if (socketAddress == null) {
+          return null;
+        }
+        InetAddress address = socketAddress.getAddress();
+        if (address != null) {
+          return address;
+        }
+        return parseAddress(socketAddress.getHostString());
+      }
+
+      private static InetAddress parseAddress(String value) {
+        if (value == null || value.isBlank()) {
+          return null;
+        }
+        try {
+          return InetAddress.getByName(value);
+        } catch (UnknownHostException ex) {
+          return null;
+        }
+      }
+
+      private static boolean isInCidr(InetAddress address, String cidr) {
+        String[] parts = cidr.split("/", 2);
+        if (parts.length != 2) {
+          return false;
+        }
+        InetAddress network = parseAddress(parts[0].trim());
+        if (network == null) {
+          return false;
+        }
+        int prefixLength;
+        try {
+          prefixLength = Integer.parseInt(parts[1].trim());
+        } catch (NumberFormatException ex) {
+          return false;
+        }
+        byte[] addressBytes = address.getAddress();
+        byte[] networkBytes = network.getAddress();
+        if (addressBytes.length != networkBytes.length) {
+          return false;
+        }
+        int maxBits = addressBytes.length * 8;
+        if (prefixLength < 0 || prefixLength > maxBits) {
+          return false;
+        }
+        int fullBytes = prefixLength / 8;
+        int remainingBits = prefixLength % 8;
+        for (int i = 0; i < fullBytes; i++) {
+          if (addressBytes[i] != networkBytes[i]) {
+            return false;
+          }
+        }
+        if (remainingBits == 0) {
+          return true;
+        }
+        int mask = 0xFF << (8 - remainingBits);
+        return (addressBytes[fullBytes] & mask) == (networkBytes[fullBytes] & mask);
+      }
+
+      private static boolean isAuthorized(HttpExchange exchange) {
+        if (!AnalyticsConfig.REQUIRE_AUTH.get()) {
+          return true;
+        }
+        String expected = AnalyticsConfig.ACCESS_TOKEN.get();
+        if (expected == null || expected.isBlank()) {
+          return false;
+        }
+        String provided = getProvidedToken(exchange);
+        return expected.equals(provided);
+      }
+
+      private static String getProvidedToken(HttpExchange exchange) {
+        String bearer = exchange.getRequestHeaders().getFirst("Authorization");
+        if (bearer != null) {
+          String value = bearer.trim();
+          if (value.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            return value.substring(7).trim();
+          }
+        }
+        String headerToken = exchange.getRequestHeaders().getFirst("X-Access-Token");
+        if (headerToken != null && !headerToken.isBlank()) {
+          return headerToken.trim();
+        }
+        Map<String, String> params = parseQuery(exchange.getRequestURI());
+        String queryToken = params.get("token");
+        if (queryToken != null && !queryToken.isBlank()) {
+          return queryToken.trim();
+        }
+        return null;
+      }
+
+      private static void sendPlainText(HttpExchange exchange, int status, String message) throws IOException {
+        byte[] body = message.getBytes(StandardCharsets.UTF_8);
+        Headers headers = exchange.getResponseHeaders();
+        headers.set("Content-Type", "text/plain; charset=utf-8");
+        exchange.sendResponseHeaders(status, body.length);
+        try (OutputStream output = exchange.getResponseBody()) {
+          output.write(body);
+        }
+      }
 
     private static void handleJson(HttpExchange exchange, String json) throws IOException {
         byte[] body = json.getBytes(StandardCharsets.UTF_8);
