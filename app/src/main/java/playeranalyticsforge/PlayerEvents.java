@@ -3,6 +3,7 @@ package playeranalyticsforge;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.item.ItemStack;
+import net.minecraftforge.event.ServerChatEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
@@ -236,5 +237,17 @@ public final class PlayerEvents {
         AnalyticsWebServer.stop();
         PlayerAnalyticsDb.close();
         DiscordIntegration.stop();
+    }
+
+    @SubscribeEvent
+    public static void onServerChat(ServerChatEvent event) {
+        ServerPlayer player = event.getPlayer();
+        String message = event.getMessage().getString();
+        String playerName = player.getGameProfile().getName();
+        
+        // Forward to Discord if enabled
+        if (AnalyticsConfig.DISCORD_ENABLED.get() && AnalyticsConfig.DISCORD_BRIDGE_CHAT.get()) {
+            DiscordIntegration.sendChatMessage(playerName, message);
+        }
     }
 }

@@ -22,17 +22,25 @@ This mod can send notifications to a Discord channel using a bot token (not webh
 
 ```toml
 [playeranalytics.discord]
-	enabled = true
-	botToken = "YOUR_BOT_TOKEN"
-	channelId = "YOUR_CHANNEL_ID"
-	guildId = "YOUR_GUILD_ID"
-	notifyJoins = true
-	notifyLeaves = true
-	notifyKills = false
-	notifyDeaths = false
-	notifyMilestones = true
-	notifyStats = false
+  enabled = true
+  botToken = "YOUR_BOT_TOKEN"
+  channelId = "YOUR_CHANNEL_ID"
+  guildId = "YOUR_GUILD_ID"
+  bridgeChat = true
+  notifyJoins = true
+  notifyLeaves = true
+  notifyKills = false
+  notifyDeaths = false
+  notifyMilestones = true
+  notifyStats = false
 ```
+
+**Features**:
+- Event notifications (joins, leaves, kills, deaths, milestones)
+- **Bidirectional chat bridge**: Minecraft chat ↔ Discord messages
+  - In-game messages forwarded to Discord
+  - Discord messages sent to Minecraft chat
+  - Set `bridgeChat = true` to enable
 
 Notes:
 - The bot uses JDA and loads runtime libraries from run/libs during dev.

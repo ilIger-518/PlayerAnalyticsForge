@@ -1,6 +1,6 @@
 # PlayerAnalytics Mod Documentation
 
-**Version**: 1.1.1  
+**Version**: 1.1.2  
 **Minecraft Version**: 1.20.1  
 **Mod Loader**: Minecraft Forge 47.3.0  
 **License**: MIT  
@@ -117,7 +117,7 @@
 ### Installation Steps
 
 1. **Download the Mod**
-   - Place `PlayerAnalytics-1.20.1-1.1.1.jar` in your server's `mods` folder
+   - Place `PlayerAnalytics-1.20.1-1.1.2.jar` in your server's `mods` folder
 
 2. **Start Server**
    ```bash
@@ -296,6 +296,9 @@ PlayerAnalytics can send real-time event notifications to Discord using a bot to
   # Optional Discord guild ID (improves channel lookup reliability)
   guildId = ""
   
+  # Bridge in-game chat to Discord and Discord messages to in-game chat
+  bridgeChat = true
+  
   # Send notifications when players join
   notifyJoins = true
   
@@ -314,6 +317,27 @@ PlayerAnalytics can send real-time event notifications to Discord using a bot to
   # Send periodic server stats summaries
   notifyStats = false
 ```
+
+### Chat Bridge
+
+When `bridgeChat = true`, the mod provides bidirectional chat synchronization:
+
+**Minecraft → Discord**:
+- All player chat messages are forwarded to Discord
+- Format: `**[PlayerName]** message content`
+- Markdown characters are escaped for proper display
+
+**Discord → Minecraft**:
+- Messages from Discord users are broadcast to in-game chat
+- Format: `§b[Discord] §f<Username> §7message content`
+- Bot messages are automatically ignored to prevent loops
+- Only messages from the configured channel are bridged
+
+**Example Flow**:
+1. Player types in Minecraft: `Hello everyone!`
+2. Discord sees: `**[Player1]** Hello everyone!`
+3. Discord user replies: `Hi Player1!`
+4. Minecraft sees: `[Discord] <DiscordUser> Hi Player1!`
 
 ### Notification Examples
 
@@ -1280,7 +1304,8 @@ app/
 
 ## Version History
 
-### v1.1.1 (Current)
+### v1.1.2 (Current)
+- **Bidirectional chat bridge**: Minecraft ↔ Discord chat synchronization
 - Discord bot integration (real-time notifications)
 - Enhanced event notifications for joins, leaves, kills, deaths
 - Session duration tracking in Discord notifications
@@ -1375,4 +1400,4 @@ PlayerAnalytics is released under the MIT License. See LICENSE file for details.
 ---
 
 **Last Updated**: February 26, 2026  
-**Documentation Version**: 1.1.1
+**Documentation Version**: 1.1.2

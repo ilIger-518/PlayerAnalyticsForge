@@ -78,6 +78,24 @@ public final class DiscordIntegration {
             Class<?> jdaBuilderClass = loader.loadClass("net.dv8tion.jda.api.JDABuilder");
             java.lang.reflect.Method createDefaultMethod = jdaBuilderClass.getMethod("createDefault", String.class);
             Object builder = createDefaultMethod.invoke(null, token);
+            
+            // Add message listener if chat bridging is enabled
+            if (AnalyticsConfig.DISCORD_BRIDGE_CHAT.get()) {
+                try {
+                    Class<?> listenerAdapterClass = loader.loadClass("net.dv8tion.jda.api.hooks.ListenerAdapter");
+                    Object listener = java.lang.reflect.Proxy.newProxyInstance(
+                        loader,
+                        new Class<?>[]{listenerAdapterClass},
+                        new DiscordMessageHandler(loader)
+                    );
+                    java.lang.reflect.Method addEventListenersMethod = builder.getClass().getMethod("addEventListeners", Object[].class);
+                    addEventListenersMethod.invoke(builder, (Object) new Object[]{listener});
+                    PlayeranalyticsForgeMod.LOGGER.info("Discord chat bridge enabled");
+                } catch (Exception ex) {
+                    PlayeranalyticsForgeMod.LOGGER.warn("Failed to enable Discord chat bridge: {}", ex.getMessage());
+                }
+            }
+            
             java.lang.reflect.Method buildMethod = builder.getClass().getMethod("build");
             jda = buildMethod.invoke(builder);
             PlayeranalyticsForgeMod.LOGGER.info("Discord bot initialized via JDA");
@@ -310,6 +328,129 @@ public final class DiscordIntegration {
             return String.format("%dm %ds", minutes, secs);
         } else {
             return String.format("%ds", secs);
+        }
+    }
+
+    /**
+     * Send a simple chat message to Discord (not an embed)
+     */
+    public static void sendChatMessage(String playerName, String message) {
+        if (jda == null || !jdaAvailable) {
+            return;
+        }
+
+        if (!AnalyticsConfig.DISCORD_ENABLED.get() || !AnalyticsConfig.DISCORD_BRIDGE_CHAT.get()) {
+            return;
+        }
+
+        String channelId = AnalyticsConfig.DISCORD_CHANNEL_ID.get();
+        if (channelId == null || channelId.isBlank()) {
+            return;
+        }
+
+        try {
+            ClassLoader loader = jdaClassLoader != null ? jdaClassLoader : Thread.currentThread().getContextClassLoader();
+            
+            // Get channel
+            java.lang.reflect.Method getTextChannelByIdMethod = jda.getClass().getMethod("getTextChannelById", String.class);
+            Object channel = getTextChannelByIdMethod.invoke(jda, channelId);
+
+            if (channel == null) {
+                PlayeranalyticsForgeMod.LOGGER.debug("Discord channel not found: {}", channelId);
+                return;
+            }
+
+            // Send formatted message
+            String formattedMessage = "**[" + escapeMarkdown(playerName) + "]** " + escapeMarkdown(message);
+            java.lang.reflect.Method sendMessageMethod = channel.getClass().getMethod("sendMessage", String.class);
+            Object action = sendMessageMethod.invoke(channel, formattedMessage);
+            java.lang.reflect.Method queueMethod = action.getClass().getMethod("queue");
+            queueMethod.invoke(action);
+
+            PlayeranalyticsForgeMod.LOGGER.debug("Sent chat message to Discord: {}", formattedMessage);
+        } catch (Throwable ex) {
+            PlayeranalyticsForgeMod.LOGGER.debug("Failed to send chat message to Discord: {}", ex.getMessage());
+        }
+    }
+
+    /**
+     * Broadcast a Discord message to Minecraft chat
+     */
+    public static void broadcastToMinecraft(String username, String content) {
+        try {
+            net.minecraft.server.MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+            if (server != null) {
+                net.minecraft.network.chat.Component message = net.minecraft.network.chat.Component.literal(
+                    "§b[Discord] §f<" + username + "> §7" + content
+                );
+                server.getPlayerList().broadcastSystemMessage(message, false);
+                PlayeranalyticsForgeMod.LOGGER.debug("Broadcasted Discord message to Minecraft: <{}> {}", username, content);
+            }
+        } catch (Exception ex) {
+            PlayeranalyticsForgeMod.LOGGER.debug("Failed to broadcast Discord message to Minecraft", ex);
+        }
+    }
+
+    /**
+     * InvocationHandler to handle Discord message events via reflection
+     */
+    static class DiscordMessageHandler implements java.lang.reflect.InvocationHandler {
+        private final ClassLoader loader;
+
+        public DiscordMessageHandler(ClassLoader loader) {
+            this.loader = loader;
+        }
+
+        @Override
+        public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] args) throws Throwable {
+            // We're looking for onMessageReceived method
+            if ("onMessageReceived".equals(method.getName()) && args != null && args.length > 0) {
+                try {
+                    Object event = args[0];
+                    
+                    // Get author
+                    java.lang.reflect.Method getAuthorMethod = event.getClass().getMethod("getAuthor");
+                    Object author = getAuthorMethod.invoke(event);
+                    
+                    // Check if author is a bot
+                    java.lang.reflect.Method isBotMethod = author.getClass().getMethod("isBot");
+                    boolean isBot = (Boolean) isBotMethod.invoke(author);
+                    
+                    if (isBot) {
+                        return null; // Ignore bot messages
+                    }
+                    
+                    // Get channel
+                    java.lang.reflect.Method getChannelMethod = event.getClass().getMethod("getChannel");
+                    Object channel = getChannelMethod.invoke(event);
+                    java.lang.reflect.Method getIdMethod = channel.getClass().getMethod("getId");
+                    String channelId = (String) getIdMethod.invoke(channel);
+                    
+                    // Check if this is our configured channel
+                    String configuredChannelId = AnalyticsConfig.DISCORD_CHANNEL_ID.get();
+                    if (!channelId.equals(configuredChannelId)) {
+                        return null; // Not our channel
+                    }
+                    
+                    // Get message content
+                    java.lang.reflect.Method getContentDisplayMethod = event.getClass().getMethod("getMessage");
+                    Object message = getContentDisplayMethod.invoke(event);
+                    java.lang.reflect.Method getContentRawMethod = message.getClass().getMethod("getContentRaw");
+                    String content = (String) getContentRawMethod.invoke(message);
+                    
+                    // Get username
+                    java.lang.reflect.Method getNameMethod = author.getClass().getMethod("getName");
+                    String username = (String) getNameMethod.invoke(author);
+                    
+                    // Broadcast to Minecraft
+                    if (content != null && !content.isBlank()) {
+                        broadcastToMinecraft(username, content);
+                    }
+                } catch (Exception ex) {
+                    PlayeranalyticsForgeMod.LOGGER.debug("Failed to process Discord message event: {}", ex.getMessage());
+                }
+            }
+            return null;
         }
     }
 }

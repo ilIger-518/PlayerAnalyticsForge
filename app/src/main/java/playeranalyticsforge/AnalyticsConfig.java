@@ -51,6 +51,7 @@ public final class AnalyticsConfig {
         public static final ForgeConfigSpec.ConfigValue<String> DISCORD_BOT_TOKEN;
         public static final ForgeConfigSpec.ConfigValue<String> DISCORD_CHANNEL_ID;
         public static final ForgeConfigSpec.ConfigValue<String> DISCORD_GUILD_ID;
+        public static final ForgeConfigSpec.BooleanValue DISCORD_BRIDGE_CHAT;
         public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_JOINS;
         public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_LEAVES;
         public static final ForgeConfigSpec.BooleanValue DISCORD_NOTIFY_KILLS;
@@ -209,6 +210,10 @@ public final class AnalyticsConfig {
         DISCORD_GUILD_ID = BUILDER
                 .comment("Optional Discord server (guild) ID; improves channel lookup reliability")
                 .define("guildId", "");
+        
+        DISCORD_BRIDGE_CHAT = BUILDER
+                .comment("Bridge in-game chat to Discord and Discord messages to in-game chat")
+                .define("bridgeChat", true);
         
         DISCORD_NOTIFY_JOINS = BUILDER
                 .comment("Send notifications when players join")
