@@ -43,6 +43,14 @@ public final class AnalyticsCommands {
                 .then(Commands.literal("export")
                     .executes(context -> exportDataCommand(context.getSource()))
                 )
+                .then(Commands.literal("backup")
+                    .requires(source -> source.hasPermission(2))
+                    .executes(context -> backupCommand(context.getSource()))
+                )
+                .then(Commands.literal("cleanup")
+                    .requires(source -> source.hasPermission(2))
+                    .executes(context -> cleanupCommand(context.getSource()))
+                )
                 .then(Commands.literal("debug")
                     .executes(context -> debugCommand(context.getSource()))
                 )
@@ -277,6 +285,40 @@ public final class AnalyticsCommands {
         } catch (SQLException | IOException ex) {
             PlayeranalyticsForgeMod.LOGGER.error("Failed to export data", ex);
             source.sendFailure(Component.literal("Failed to export data. Check server logs."));
+            return 0;
+        }
+    }
+
+    @SuppressWarnings("null")
+    private static int backupCommand(CommandSourceStack source) {
+        try {
+            PlayerAnalyticsDb.createBackup();
+            source.sendSuccess(() -> Component.literal("✓ Database backup created")
+                .withStyle(ChatFormatting.GREEN), false);
+            return 1;
+        } catch (Exception ex) {
+            PlayeranalyticsForgeMod.LOGGER.error("Failed to create backup", ex);
+            source.sendFailure(Component.literal("Failed to create backup. Check server logs."));
+            return 0;
+        }
+    }
+
+    @SuppressWarnings("null")
+    private static int cleanupCommand(CommandSourceStack source) {
+        try {
+            int retentionDays = AnalyticsConfig.DATA_RETENTION_DAYS.get();
+            if (retentionDays <= 0) {
+                source.sendSuccess(() -> Component.literal("Retention disabled (retentionDays=0). No cleanup performed.")
+                    .withStyle(ChatFormatting.YELLOW), false);
+                return 1;
+            }
+            PlayerAnalyticsDb.runRetentionCleanup(retentionDays);
+            source.sendSuccess(() -> Component.literal("✓ Retention cleanup completed")
+                .withStyle(ChatFormatting.GREEN), false);
+            return 1;
+        } catch (Exception ex) {
+            PlayeranalyticsForgeMod.LOGGER.error("Failed to run cleanup", ex);
+            source.sendFailure(Component.literal("Failed to run cleanup. Check server logs."));
             return 0;
         }
     }

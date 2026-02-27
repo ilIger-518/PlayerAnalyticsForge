@@ -97,9 +97,9 @@
 - [ ] Add MySQL support (alternative to SQLite)
 - [ ] Add PostgreSQL support
 - [ ] Database migrations system
-- [ ] Automatic database backups
+- [x] Automatic database backups
 - [ ] Configurable retention window (auto-delete old data)
-- [ ] Data cleanup jobs (scheduled tasks)
+- [x] Data cleanup jobs (scheduled tasks)
 - [ ] Database optimization/vacuum commands
 
 ### Export & Import

@@ -39,6 +39,12 @@ public final class AnalyticsConfig {
     public static final ForgeConfigSpec.BooleanValue AUTO_CLEANUP_ENABLED;
     public static final ForgeConfigSpec.IntValue CLEANUP_INTERVAL_HOURS;
 
+        // Backup Configuration
+        public static final ForgeConfigSpec.BooleanValue BACKUP_ENABLED;
+        public static final ForgeConfigSpec.IntValue BACKUP_INTERVAL_HOURS;
+        public static final ForgeConfigSpec.IntValue BACKUP_RETENTION_DAYS;
+        public static final ForgeConfigSpec.IntValue BACKUP_MAX_FILES;
+
         // Update Check Configuration
         public static final ForgeConfigSpec.BooleanValue UPDATE_CHECK_ENABLED;
         public static final ForgeConfigSpec.IntValue UPDATE_CHECK_INTERVAL_HOURS;
@@ -167,6 +173,28 @@ public final class AnalyticsConfig {
                 .comment("How often to run cleanup (in hours)")
                 .defineInRange("cleanupIntervalHours", 24, 1, 168);
         
+        BUILDER.pop();
+
+        // Backups
+        BUILDER.comment("Database Backup Configuration")
+                .push("backups");
+
+        BACKUP_ENABLED = BUILDER
+                .comment("Enable scheduled database backups")
+                .define("enabled", true);
+
+        BACKUP_INTERVAL_HOURS = BUILDER
+                .comment("How often to create backups (in hours)")
+                .defineInRange("intervalHours", 24, 1, 168);
+
+        BACKUP_RETENTION_DAYS = BUILDER
+                .comment("Delete backups older than this many days (0 = keep forever)")
+                .defineInRange("retentionDays", 14, 0, 3650);
+
+        BACKUP_MAX_FILES = BUILDER
+                .comment("Maximum number of backup files to keep (0 = unlimited)")
+                .defineInRange("maxFiles", 20, 0, 1000);
+
         BUILDER.pop();
 
         // Update Check

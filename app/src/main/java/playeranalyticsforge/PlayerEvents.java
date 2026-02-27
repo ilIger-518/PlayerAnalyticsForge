@@ -20,6 +20,8 @@ public final class PlayerEvents {
     private static long activityUpdateCounter = 0;
     private static long pingTrackingCounter = 0;
     private static long qualityCalculationCounter = 0;
+    private static long cleanupCounter = 0;
+    private static long backupCounter = 0;
     private static final ConcurrentHashMap<UUID, String> playerWorlds = new ConcurrentHashMap<>();
 
     private PlayerEvents() {
@@ -213,6 +215,8 @@ public final class PlayerEvents {
             activityUpdateCounter++;
             pingTrackingCounter++;
             qualityCalculationCounter++;
+            cleanupCounter++;
+            backupCounter++;
             
             long metricsInterval = AnalyticsConfig.METRICS_RECORDING_INTERVAL.get();
             if (tickCounter >= metricsInterval && event.getServer() != null) {
@@ -240,6 +244,23 @@ public final class PlayerEvents {
             if (qualityCalculationCounter >= 6000 && event.getServer() != null) {
                 qualityCalculationCounter = 0;
                 calculateAllConnectionQuality(event.getServer());
+            }
+
+            int retentionDays = AnalyticsConfig.DATA_RETENTION_DAYS.get();
+            if (AnalyticsConfig.AUTO_CLEANUP_ENABLED.get() && retentionDays > 0) {
+                long cleanupIntervalTicks = Math.max(1L, AnalyticsConfig.CLEANUP_INTERVAL_HOURS.get()) * 20L * 3600L;
+                if (cleanupCounter >= cleanupIntervalTicks) {
+                    cleanupCounter = 0;
+                    PlayerAnalyticsDb.runRetentionCleanup(retentionDays);
+                }
+            }
+
+            if (AnalyticsConfig.BACKUP_ENABLED.get()) {
+                long backupIntervalTicks = Math.max(1L, AnalyticsConfig.BACKUP_INTERVAL_HOURS.get()) * 20L * 3600L;
+                if (backupCounter >= backupIntervalTicks) {
+                    backupCounter = 0;
+                    PlayerAnalyticsDb.createBackup();
+                }
             }
         }
     }

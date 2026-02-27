@@ -14,7 +14,13 @@ import java.sql.Statement;
 import java.time.Instant;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Collectors;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -27,6 +33,7 @@ public final class PlayerAnalyticsDb {
     private static final ConcurrentHashMap<UUID, Instant> lastActivityTime = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<UUID, Instant> afkStartTime = new ConcurrentHashMap<>();
     private static final long AFK_TIMEOUT_SECONDS = 300; // 5 minutes
+    private static final DateTimeFormatter BACKUP_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
     private PlayerAnalyticsDb() {
     }
@@ -442,6 +449,134 @@ public final class PlayerAnalyticsDb {
         }
     }
 
+    public static void createBackup() {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                Path backupDir = getBackupDir();
+                Files.createDirectories(backupDir);
+
+                String timestamp = LocalDateTime.now(ZoneOffset.UTC).format(BACKUP_FORMAT);
+                Path backupPath = backupDir.resolve("playeranalytics-backup-" + timestamp + ".sqlite");
+                String escapedPath = backupPath.toAbsolutePath().toString().replace("'", "''");
+
+                try (Statement statement = conn.createStatement()) {
+                    statement.executeUpdate("VACUUM INTO '" + escapedPath + "'");
+                }
+
+                cleanupOldBackups(backupDir,
+                    AnalyticsConfig.BACKUP_RETENTION_DAYS.get(),
+                    AnalyticsConfig.BACKUP_MAX_FILES.get());
+
+                PlayeranalyticsForgeMod.LOGGER.info("Database backup created at {}", backupPath);
+            } catch (Exception ex) {
+                PlayeranalyticsForgeMod.LOGGER.warn("Failed to create database backup", ex);
+            }
+        }
+    }
+
+    public static void runRetentionCleanup(int retentionDays) {
+        if (retentionDays <= 0) {
+            return;
+        }
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String cutoff = Instant.now().minus(Duration.ofDays(retentionDays)).toString();
+                String cutoffDate = LocalDate.now(ZoneOffset.UTC).minusDays(retentionDays).toString();
+
+                List<String> deletedTables = new ArrayList<>();
+
+                deleteByTimestamp(conn, "DELETE FROM player_sessions WHERE event_time_utc < ?", cutoff, deletedTables, "player_sessions");
+                deleteByTimestamp(conn, "DELETE FROM player_session_data WHERE session_end < ?", cutoff, deletedTables, "player_session_data");
+                deleteByTimestamp(conn, "DELETE FROM player_afk_data WHERE afk_end < ?", cutoff, deletedTables, "player_afk_data");
+                deleteByTimestamp(conn, "DELETE FROM server_metrics WHERE recorded_at < ?", cutoff, deletedTables, "server_metrics");
+                deleteByTimestamp(conn, "DELETE FROM kill_details WHERE last_kill_time < ?", cutoff, deletedTables, "kill_details");
+                deleteByTimestamp(conn, "DELETE FROM death_events WHERE death_time_utc < ?", cutoff, deletedTables, "death_events");
+                deleteByTimestamp(conn, "DELETE FROM player_kill_matrix WHERE last_kill_time < ?", cutoff, deletedTables, "player_kill_matrix");
+                deleteByTimestamp(conn, "DELETE FROM world_kills WHERE kill_time_utc < ?", cutoff, deletedTables, "world_kills");
+                deleteByTimestamp(conn, "DELETE FROM world_sessions WHERE COALESCE(left_time, joined_time) < ?", cutoff, deletedTables, "world_sessions");
+                deleteByTimestamp(conn, "DELETE FROM player_server_history WHERE COALESCE(left_time, joined_time) < ?", cutoff, deletedTables, "player_server_history");
+                deleteByTimestamp(conn, "DELETE FROM network_sync_log WHERE sync_time < ?", cutoff, deletedTables, "network_sync_log");
+                deleteByTimestamp(conn, "DELETE FROM player_connections WHERE join_time_utc < ?", cutoff, deletedTables, "player_connections");
+                deleteByTimestamp(conn, "DELETE FROM player_ping_history WHERE recorded_at < ?", cutoff, deletedTables, "player_ping_history");
+                deleteByTimestamp(conn, "DELETE FROM username_history WHERE changed_at < ?", cutoff, deletedTables, "username_history");
+                deleteByTimestamp(conn, "DELETE FROM connection_quality WHERE recorded_at < ?", cutoff, deletedTables, "connection_quality");
+                deleteByDate(conn, "DELETE FROM daily_activity WHERE activity_date < ?", cutoffDate, deletedTables, "daily_activity");
+                deleteByTimestamp(conn, "DELETE FROM world_playtime WHERE last_updated < ?", cutoff, deletedTables, "world_playtime");
+                deleteByTimestamp(conn, "DELETE FROM death_causes WHERE last_death_time < ?", cutoff, deletedTables, "death_causes");
+
+                if (!deletedTables.isEmpty()) {
+                    PlayeranalyticsForgeMod.LOGGER.info("Retention cleanup complete for {} tables", deletedTables.size());
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.warn("Failed to run retention cleanup", ex);
+            }
+        }
+    }
+
+    private static void deleteByTimestamp(Connection conn, String sql, String cutoff, List<String> deletedTables, String table) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, cutoff);
+            int deleted = stmt.executeUpdate();
+            if (deleted > 0) {
+                deletedTables.add(table);
+            }
+        }
+    }
+
+    private static void deleteByDate(Connection conn, String sql, String cutoffDate, List<String> deletedTables, String table) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, cutoffDate);
+            int deleted = stmt.executeUpdate();
+            if (deleted > 0) {
+                deletedTables.add(table);
+            }
+        }
+    }
+
+    private static Path getDbPath() {
+        return FMLPaths.CONFIGDIR.get().resolve("playeranalytics.sqlite");
+    }
+
+    private static Path getBackupDir() {
+        return FMLPaths.CONFIGDIR.get().resolve("playeranalytics_backups");
+    }
+
+    private static void cleanupOldBackups(Path backupDir, int retentionDays, int maxFiles) {
+        try {
+            if (!Files.exists(backupDir)) {
+                return;
+            }
+            List<Path> backups = Files.list(backupDir)
+                .filter(path -> path.getFileName().toString().endsWith(".sqlite"))
+                .sorted(Comparator.comparingLong((Path path) -> path.toFile().lastModified()).reversed())
+                .collect(Collectors.toList());
+
+            if (retentionDays > 0) {
+                Instant cutoff = Instant.now().minus(Duration.ofDays(retentionDays));
+                for (Path backup : backups) {
+                    Instant modified = Instant.ofEpochMilli(backup.toFile().lastModified());
+                    if (modified.isBefore(cutoff)) {
+                        Files.deleteIfExists(backup);
+                    }
+                }
+            }
+
+            if (maxFiles > 0) {
+                List<Path> remaining = Files.list(backupDir)
+                    .filter(path -> path.getFileName().toString().endsWith(".sqlite"))
+                    .sorted(Comparator.comparingLong((Path path) -> path.toFile().lastModified()).reversed())
+                    .collect(Collectors.toList());
+                for (int i = maxFiles; i < remaining.size(); i++) {
+                    Files.deleteIfExists(remaining.get(i));
+                }
+            }
+        } catch (Exception ex) {
+            PlayeranalyticsForgeMod.LOGGER.warn("Failed to clean up old backups", ex);
+        }
+    }
+
     public static void recordKill(ServerPlayer player) {
         updateStats(player, true);
     }
@@ -517,12 +652,11 @@ public final class PlayerAnalyticsDb {
                 return connection;
             }
 
-            Path configDir = FMLPaths.CONFIGDIR.get();
-            Path dbPath = configDir.resolve("playeranalytics.sqlite");
+            Path dbPath = getDbPath();
             try {
-                Files.createDirectories(configDir);
+                Files.createDirectories(dbPath.getParent());
             } catch (Exception ex) {
-                PlayeranalyticsForgeMod.LOGGER.warn("Failed to create config directory: {}", configDir, ex);
+                PlayeranalyticsForgeMod.LOGGER.warn("Failed to create config directory: {}", dbPath.getParent(), ex);
             }
             
             String jdbcUrl = "jdbc:sqlite:" + dbPath.toAbsolutePath();
