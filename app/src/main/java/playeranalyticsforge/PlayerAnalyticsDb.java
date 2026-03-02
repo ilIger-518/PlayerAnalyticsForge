@@ -646,6 +646,71 @@ public final class PlayerAnalyticsDb {
         }
     }
 
+    public static String getPlayerKillsByTypeJson(String playerUuid) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT victim_type, COUNT(*) AS kill_count " +
+                    "FROM world_kills WHERE killer_uuid = ? " +
+                    "GROUP BY victim_type ORDER BY kill_count DESC";
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, playerUuid);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        StringBuilder json = new StringBuilder("[");
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) json.append(",");
+                            first = false;
+                            json.append("{");
+                            json.append("\"victimType\":").append(toJsonString(rs.getString("victim_type"))).append(",");
+                            json.append("\"killCount\":").append(rs.getLong("kill_count"));
+                            json.append("}");
+                        }
+                        json.append("]");
+                        return json.toString();
+                    }
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to query player kills by type", ex);
+                return "[]";
+            }
+        }
+    }
+
+    public static String getPlayerKillTypeDetailsJson(String playerUuid, String victimType, int limit) {
+        synchronized (LOCK) {
+            try {
+                Connection conn = init();
+                String sql = "SELECT victim_name, kill_time_utc, weapon_used " +
+                    "FROM world_kills WHERE killer_uuid = ? AND victim_type = ? " +
+                    "ORDER BY kill_time_utc DESC LIMIT ?";
+                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                    stmt.setString(1, playerUuid);
+                    stmt.setString(2, victimType);
+                    stmt.setInt(3, limit);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        StringBuilder json = new StringBuilder("[");
+                        boolean first = true;
+                        while (rs.next()) {
+                            if (!first) json.append(",");
+                            first = false;
+                            json.append("{");
+                            json.append("\"victimName\":").append(toJsonString(rs.getString("victim_name"))).append(",");
+                            json.append("\"killTimeUtc\":").append(toJsonString(rs.getString("kill_time_utc"))).append(",");
+                            json.append("\"weaponUsed\":").append(toJsonString(rs.getString("weapon_used")));
+                            json.append("}");
+                        }
+                        json.append("]");
+                        return json.toString();
+                    }
+                }
+            } catch (SQLException ex) {
+                PlayeranalyticsForgeMod.LOGGER.error("Failed to query player kill type details", ex);
+                return "[]";
+            }
+        }
+    }
+
     private static Connection init() throws SQLException {
         synchronized (LOCK) {
             if (connection != null) {
