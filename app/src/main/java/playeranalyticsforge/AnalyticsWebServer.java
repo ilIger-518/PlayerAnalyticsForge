@@ -82,6 +82,7 @@ public final class AnalyticsWebServer {
             createContextWithSecurity(server, "/api/geo/stats", new GeoStatsHandler());
             createContextWithSecurity(server, "/api/geo/ping-stats", new GeoPingStatsHandler());
             createContextWithSecurity(server, "/api/leaderboard/", new LeaderboardHandler());
+            createContextWithSecurity(server, "/api/player/kills/", new PlayerKillsHandler());
             createContextWithSecurity(server, "/api/player/", new PlayerHandler());
             createContextWithSecurity(server, "/api/churn/analysis", exchange -> handleJson(exchange, PlayerAnalyticsDb.getChurnAnalysisJson()));
             createContextWithSecurity(server, "/api/churn/players/", new ChurnedPlayersHandler());
@@ -817,23 +818,6 @@ public final class AnalyticsWebServer {
                   <tbody id=\"streaks-body\"></tbody>
                 </table>
               </section>
-              <section class="card">
-                <div class="pill">Kill Details</div>
-                <div class="table-controls">
-                  <input type="text" id="search-kills" class="search-input" placeholder="Search kills...">
-                  <span id="search-kills-count" class="filter-badge">0 results</span>
-                </div>
-                <table id="kills-table">
-                  <thead>
-                    <tr>
-                      <th>Killer</th>
-                      <th>Victim</th>
-                      <th>Count</th>
-                      <th>Last Kill (UTC)</th>
-                    </tr>
-                  </thead>
-                  <tbody id="kills-body"></tbody>
-                </table>
               </section>
               <section class=\"card\">
                 <div class=\"pill\">Session Insights</div>
@@ -1045,6 +1029,14 @@ public final class AnalyticsWebServer {
                 document.getElementById("summary-last").textContent = `Last event: ${data.lastEvent ?? "-"}`;
               }
 
+              function fmtTime(ts) {
+                if (!ts) return "<span class='time-cell'><span class='time-date'>—</span></span>";
+                const s = String(ts).replace('T', ' ').substring(0, 19);
+                const idx = s.indexOf(' ');
+                if (idx < 0) return "<span class='time-cell'><span class='time-date'>" + s + "</span></span>";
+                return "<span class='time-cell'><span class='time-date'>" + s.substring(0, idx) + "</span><span class='time-hms'>" + s.substring(idx + 1) + "</span></span>";
+              }
+
               async function loadEvents() {
                 const res = await fetch("/api/events?limit=25");
                 const data = await res.json();
@@ -1052,7 +1044,7 @@ public final class AnalyticsWebServer {
                 body.innerHTML = "";
                 data.forEach(event => {
                   const row = document.createElement("tr");
-                  row.innerHTML = `<td>${event.playerName}</td><td>${event.eventType}</td><td>${event.eventTimeUtc}</td>`;
+                  row.innerHTML = `<td>${event.playerName}</td><td>${event.eventType}</td><td>${fmtTime(event.eventTimeUtc)}</td>`;
                   body.appendChild(row);
                 });
               }
@@ -1068,20 +1060,7 @@ public final class AnalyticsWebServer {
                   const playtimeMinutes = Math.floor((player.totalPlaytimeSeconds % 3600) / 60);
                   const playtimeDisplay = `${playtimeHours}h ${playtimeMinutes}m`;
                   const playerLink = `<a href=\"/player/${player.playerUuid}\" style=\"color: var(--color-plan); text-decoration: none;\">${player.playerName}</a>`;
-                  row.innerHTML = `<td>${playerLink}</td><td>${playtimeDisplay}</td><td>${player.lastSeen ?? \"-\"}</td><td>${player.joins}</td><td>${player.leaves}</td><td>${player.kills}</td><td>${player.deaths}</td><td>${player.kdRatio}</td>`;
-                  body.appendChild(row);
-                });
-              }
-
-              async function loadKills() {
-                const res = await fetch("/api/kills?limit=50");
-                const data = await res.json();
-                const body = document.getElementById("kills-body");
-                body.innerHTML = "";
-                data.forEach(kill => {
-                  const row = document.createElement("tr");
-                  const victimDisplay = kill.victimName ? `${kill.victimName} (${kill.victimType})` : kill.victimType;
-                  row.innerHTML = `<td>${kill.killerName}</td><td>${victimDisplay}</td><td>${kill.killCount}</td><td>${kill.lastKillTime}</td>`;
+                  row.innerHTML = `<td>${playerLink}</td><td>${playtimeDisplay}</td><td>${fmtTime(player.lastSeen)}</td><td>${player.joins}</td><td>${player.leaves}</td><td>${player.kills}</td><td>${player.deaths}</td><td>${player.kdRatio}</td>`;
                   body.appendChild(row);
                 });
               }
@@ -1096,7 +1075,7 @@ public final class AnalyticsWebServer {
                   const durationMinutes = Math.floor(session.durationSeconds / 60);
                   const durationSeconds = session.durationSeconds % 60;
                   const durationDisplay = `${durationMinutes}m ${durationSeconds}s`;
-                  row.innerHTML = `<td>${session.playerName}</td><td>${durationDisplay}</td><td>${session.sessionStart}</td><td>${session.sessionEnd}</td>`;
+                  row.innerHTML = `<td>${session.playerName}</td><td>${durationDisplay}</td><td>${fmtTime(session.sessionStart)}</td><td>${fmtTime(session.sessionEnd)}</td>`;
                   body.appendChild(row);
                 });
               }
@@ -1713,7 +1692,6 @@ public final class AnalyticsWebServer {
                   loadEvents(),
                   loadPlayers(),
                   loadSessions(),
-                  loadKills(),
                   loadPlaytimeDetails(),
                   loadPlaytimeChart(),
                   loadKillsChart(),
@@ -1740,17 +1718,15 @@ public final class AnalyticsWebServer {
                 makeTableSortable('sessions-table');
                 makeTableSortable('playtime-table');
                 makeTableSortable('combat-table');
-                makeTableSortable('kills-table');
                 
                 // Add search functionality
                 addTableSearch('players-table', 'search-players');
                 addTableSearch('sessions-table', 'search-sessions');
                 addTableSearch('playtime-table', 'search-playtime');
                 addTableSearch('combat-table', 'search-combat');
-                addTableSearch('kills-table', 'search-kills');
                 
                 // Initial count updates
-                ['players', 'sessions', 'playtime', 'combat', 'kills'].forEach(name => {
+                ['players', 'sessions', 'playtime', 'combat'].forEach(name => {
                   const table = document.getElementById(`${name}-table`);
                   const badge = document.getElementById(`search-${name}-count`);
                   if (table && badge) {
@@ -2118,6 +2094,14 @@ public final class AnalyticsWebServer {
                 }
               }
 
+              function fmtTime(ts) {
+                if (!ts) return "<span class='time-cell'><span class='time-date'>—</span></span>";
+                const s = String(ts).replace('T', ' ').substring(0, 19);
+                const idx = s.indexOf(' ');
+                if (idx < 0) return "<span class='time-cell'><span class='time-date'>" + s + "</span></span>";
+                return "<span class='time-cell'><span class='time-date'>" + s.substring(0, idx) + "</span><span class='time-hms'>" + s.substring(idx + 1) + "</span></span>";
+              }
+
               async function loadRecentConnections() {
                 try {
                   const playersRes = await fetch('/api/players');
@@ -2142,7 +2126,7 @@ public final class AnalyticsWebServer {
                           <td>${conn.region || '—'}</td>
                           <td>${conn.city || '—'}</td>
                           <td>${conn.joinAddress || '—'}</td>
-                          <td>${new Date(conn.joinTime).toLocaleString()}</td>
+                          <td>${fmtTime(conn.joinTime)}</td>
                         `;
                         tbody.appendChild(row);
                       }
@@ -2337,23 +2321,31 @@ public final class AnalyticsWebServer {
                   <tbody id=\"streaks-body\"></tbody>
                 </table>
               </section>
-              <section class=\"card\">
-                <div class=\"pill\">Kill Details</div>
-                <div class=\"table-controls\">
-                  <input type=\"text\" id=\"search-kills\" class=\"search-input\" placeholder=\"Search kills...\">
-                  <span id=\"search-kills-count\" class=\"filter-badge\">0 results</span>
+              <section class=\"card card-full\">
+                <div class=\"pill\">Kill Details by Player</div>
+                <div style=\"display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;\">
+                  <label style=\"font-weight: 600; font-size: 13px;\">Player:</label>
+                  <select id=\"kills-player-select\" style=\"padding: 6px 10px; border: 1px solid var(--color-card-border); border-radius: 6px; background: var(--color-layout-background); color: var(--text); font-size: 13px; min-width: 200px;\">
+                    <option value=\"\">-- select a player --</option>
+                  </select>
                 </div>
-                <table id=\"kills-table\">
-                  <thead>
-                    <tr>
-                      <th>Killer</th>
-                      <th>Victim</th>
-                      <th>Count</th>
-                      <th>Last Kill (UTC)</th>
-                    </tr>
-                  </thead>
-                  <tbody id=\"kills-body\"></tbody>
-                </table>
+                <div id=\"kills-type-grid\" style=\"display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-bottom: 16px;\"></div>
+                <div id=\"kills-detail-panel\" style=\"display: none;\">
+                  <div style=\"display: flex; align-items: center; gap: 10px; margin-bottom: 12px;\">
+                    <button id=\"kills-back-btn\" style=\"padding: 5px 12px; border: 1px solid var(--color-card-border); border-radius: 6px; background: var(--color-box-background); color: var(--text); cursor: pointer; font-size: 13px;\">&larr; Back</button>
+                    <span id=\"kills-detail-title\" class=\"pill\"></span>
+                  </div>
+                  <table id=\"kills-detail-table\">
+                    <thead>
+                      <tr>
+                        <th>Victim Name</th>
+                        <th>Time (UTC)</th>
+                        <th>Weapon</th>
+                      </tr>
+                    </thead>
+                    <tbody id=\"kills-detail-body\"></tbody>
+                  </table>
+                </div>
               </section>
               <section class=\"card card-full\">
                 <div class=\"pill\">Leaderboards</div>
@@ -2506,6 +2498,14 @@ public final class AnalyticsWebServer {
                 });
               }
 
+              function fmtTime(ts) {
+                if (!ts) return "<span class='time-cell'><span class='time-date'>—</span></span>";
+                const s = String(ts).replace('T', ' ').substring(0, 19);
+                const idx = s.indexOf(' ');
+                if (idx < 0) return "<span class='time-cell'><span class='time-date'>" + s + "</span></span>";
+                return "<span class='time-cell'><span class='time-date'>" + s.substring(0, idx) + "</span><span class='time-hms'>" + s.substring(idx + 1) + "</span></span>";
+              }
+
               async function loadPlayers() {
                 const res = await fetch("/api/players?limit=50");
                 const data = await res.json();
@@ -2517,7 +2517,7 @@ public final class AnalyticsWebServer {
                   const playtimeMinutes = Math.floor((player.totalPlaytimeSeconds % 3600) / 60);
                   const playtimeDisplay = `${playtimeHours}h ${playtimeMinutes}m`;
                   const playerLink = `<a href="/player/${player.playerUuid}" style="color: var(--color-plan); text-decoration: none;">${player.playerName}</a>`;
-                  row.innerHTML = `<td>${playerLink}</td><td>${playtimeDisplay}</td><td>${player.lastSeen ?? "-"}</td><td>${player.joins}</td><td>${player.leaves}</td><td>${player.kills}</td><td>${player.deaths}</td><td>${player.kdRatio}</td>`;
+                  row.innerHTML = `<td>${playerLink}</td><td>${playtimeDisplay}</td><td>${fmtTime(player.lastSeen)}</td><td>${player.joins}</td><td>${player.leaves}</td><td>${player.kills}</td><td>${player.deaths}</td><td>${player.kdRatio}</td>`;
                   body.appendChild(row);
                 });
               }
@@ -2543,17 +2543,69 @@ public final class AnalyticsWebServer {
                 });
               }
 
-              async function loadKills() {
-                const res = await fetch("/api/kills?limit=50");
+              let currentKillsPlayerUuid = null;
+
+              async function loadKillsPlayerDropdown() {
+                try {
+                  const res = await fetch("/api/players");
+                  const data = await res.json();
+                  const select = document.getElementById("kills-player-select");
+                  const prev = select.value;
+                  select.innerHTML = '<option value="">-- select a player --</option>';
+                  data.forEach(player => {
+                    const opt = document.createElement("option");
+                    opt.value = player.playerUuid;
+                    opt.textContent = player.playerName;
+                    if (opt.value === prev) opt.selected = true;
+                    select.appendChild(opt);
+                  });
+                  if (!currentKillsPlayerUuid && data.length > 0) {
+                    currentKillsPlayerUuid = data[0].playerUuid;
+                    select.value = currentKillsPlayerUuid;
+                  }
+                  if (currentKillsPlayerUuid) await loadPlayerKills(currentKillsPlayerUuid);
+                } catch(e) { /* ignore */ }
+              }
+
+              async function loadPlayerKills(uuid) {
+                if (!uuid) return;
+                const res = await fetch(`/api/player/kills/${uuid}`);
                 const data = await res.json();
-                const body = document.getElementById("kills-body");
+                const grid = document.getElementById("kills-type-grid");
+                const detailPanel = document.getElementById("kills-detail-panel");
+                if (detailPanel) detailPanel.style.display = "none";
+                if (!grid) return;
+                grid.innerHTML = "";
+                if (!data || data.length === 0) {
+                  grid.innerHTML = "<em style='color: var(--color-secondary); font-size: 13px;'>No kill data for this player.</em>";
+                  return;
+                }
+                data.forEach(entry => {
+                  const card = document.createElement("div");
+                  card.style.cssText = "background: var(--color-box-background); border: 1px solid var(--color-card-border); border-radius: 8px; padding: 10px 14px; cursor: pointer; transition: border-color 0.15s; display: flex; flex-direction: column; gap: 2px;";
+                  card.innerHTML = `<span style='font-weight:700; font-size:20px; color: var(--color-plan);'>${entry.killCount}</span><span style='font-size:12px; color: var(--color-secondary);'>${entry.victimType}</span>`;
+                  card.addEventListener("mouseenter", () => card.style.borderColor = "var(--color-plan)");
+                  card.addEventListener("mouseleave", () => card.style.borderColor = "var(--color-card-border)");
+                  card.addEventListener("click", () => loadKillTypeDetail(uuid, entry.victimType));
+                  grid.appendChild(card);
+                });
+              }
+
+              async function loadKillTypeDetail(uuid, victimType) {
+                const res = await fetch(`/api/player/kills/${uuid}/${encodeURIComponent(victimType)}?limit=500`);
+                const data = await res.json();
+                const panel = document.getElementById("kills-detail-panel");
+                const titleEl = document.getElementById("kills-detail-title");
+                const body = document.getElementById("kills-detail-body");
+                if (!panel || !titleEl || !body) return;
+                titleEl.textContent = victimType;
                 body.innerHTML = "";
                 data.forEach(kill => {
                   const row = document.createElement("tr");
-                  const victimDisplay = kill.victimName ? `${kill.victimName} (${kill.victimType})` : kill.victimType;
-                  row.innerHTML = `<td>${kill.killerName}</td><td>${victimDisplay}</td><td>${kill.killCount}</td><td>${kill.lastKillTime}</td>`;
+                  row.innerHTML = `<td>${kill.victimName || "\u2014"}</td><td>${fmtTime(kill.killTimeUtc)}</td><td>${kill.weaponUsed || "\u2014"}</td>`;
                   body.appendChild(row);
                 });
+                panel.style.display = "block";
               }
 
               async function loadPlaytimeChart() {
@@ -2671,7 +2723,7 @@ public final class AnalyticsWebServer {
                   loadPlayers(),
                   loadPlaytimeDetails(),
                   loadCombatStats(),
-                  loadKills(),
+                  loadKillsPlayerDropdown(),
                   loadPlaytimeChart(),
                   loadKillsChart(),
                   loadWeaponChart(),
@@ -2684,18 +2736,24 @@ public final class AnalyticsWebServer {
                 makeTableSortable('players-table');
                 makeTableSortable('playtime-table');
                 makeTableSortable('combat-table');
-                makeTableSortable('kills-table');
+                makeTableSortable('kills-detail-table');
                 addTableSearch('players-table', 'search-players');
                 addTableSearch('playtime-table', 'search-playtime');
                 addTableSearch('combat-table', 'search-combat');
-                addTableSearch('kills-table', 'search-kills');
-                ['players', 'playtime', 'combat', 'kills'].forEach(name => {
+                ['players', 'playtime', 'combat'].forEach(name => {
                   const table = document.getElementById(`${name}-table`);
                   const badge = document.getElementById(`search-${name}-count`);
                   if (table && badge) {
                     const rows = table.querySelectorAll('tbody tr');
                     badge.textContent = `${rows.length} results`;
                   }
+                });
+                document.getElementById("kills-player-select").addEventListener("change", (e) => {
+                  currentKillsPlayerUuid = e.target.value;
+                  if (currentKillsPlayerUuid) loadPlayerKills(currentKillsPlayerUuid);
+                });
+                document.getElementById("kills-back-btn").addEventListener("click", () => {
+                  document.getElementById("kills-detail-panel").style.display = "none";
                 });
               }
 
@@ -2842,6 +2900,14 @@ public final class AnalyticsWebServer {
                 });
               }
 
+              function fmtTime(ts) {
+                if (!ts) return "<span class='time-cell'><span class='time-date'>—</span></span>";
+                const s = String(ts).replace('T', ' ').substring(0, 19);
+                const idx = s.indexOf(' ');
+                if (idx < 0) return "<span class='time-cell'><span class='time-date'>" + s + "</span></span>";
+                return "<span class='time-cell'><span class='time-date'>" + s.substring(0, idx) + "</span><span class='time-hms'>" + s.substring(idx + 1) + "</span></span>";
+              }
+
               async function loadSessions() {
                 const res = await fetch("/api/sessions?limit=50");
                 const data = await res.json();
@@ -2852,7 +2918,7 @@ public final class AnalyticsWebServer {
                   const durationMinutes = Math.floor(session.durationSeconds / 60);
                   const durationSeconds = session.durationSeconds % 60;
                   const durationDisplay = `${durationMinutes}m ${durationSeconds}s`;
-                  row.innerHTML = `<td>${session.playerName}</td><td>${durationDisplay}</td><td>${session.sessionStart}</td><td>${session.sessionEnd}</td>`;
+                  row.innerHTML = `<td>${session.playerName}</td><td>${durationDisplay}</td><td>${fmtTime(session.sessionStart)}</td><td>${fmtTime(session.sessionEnd)}</td>`;
                   body.appendChild(row);
                 });
               }
@@ -3182,6 +3248,14 @@ public final class AnalyticsWebServer {
                 document.getElementById(\"kdratio\").textContent = data.kdRatio;
               }
               
+              function fmtTime(ts) {
+                if (!ts) return "<span class='time-cell'><span class='time-date'>—</span></span>";
+                const s = String(ts).replace('T', ' ').substring(0, 19);
+                const idx = s.indexOf(' ');
+                if (idx < 0) return "<span class='time-cell'><span class='time-date'>" + s + "</span></span>";
+                return "<span class='time-cell'><span class='time-date'>" + s.substring(0, idx) + "</span><span class='time-hms'>" + s.substring(idx + 1) + "</span></span>";
+              }
+
               async function loadPlayerSessions() {
                 const res = await fetch(`/api/player/${playerUuid}?sessions=true&limit=50`);
                 const data = await res.json();
@@ -3191,7 +3265,7 @@ public final class AnalyticsWebServer {
                 data.forEach(session => {
                   const row = document.createElement(\"tr\");
                   const duration = `${Math.floor(session.durationSeconds / 60)}m ${session.durationSeconds % 60}s`;
-                  row.innerHTML = `<td>${session.sessionStart}</td><td>${session.sessionEnd}</td><td>${duration}</td>`;
+                  row.innerHTML = `<td>${fmtTime(session.sessionStart)}</td><td>${fmtTime(session.sessionEnd)}</td><td>${duration}</td>`;
                   tbody.appendChild(row);
                 });
               }
@@ -3202,6 +3276,46 @@ public final class AnalyticsWebServer {
           </body>
         </html>
         """;
+
+    static class PlayerKillsHandler implements com.sun.net.httpserver.HttpHandler {
+        @Override
+        public void handle(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+            String path = exchange.getRequestURI().getPath();
+            String rest = path.replace("/api/player/kills/", "");
+            if (rest.isEmpty()) {
+                handleJson(exchange, "{\"error\":\"Player UUID required\"}");
+                return;
+            }
+            try {
+                rest = java.net.URLDecoder.decode(rest, "UTF-8");
+            } catch (Exception e) {
+                handleJson(exchange, "{\"error\":\"Invalid path\"}");
+                return;
+            }
+            int slashIdx = rest.indexOf('/');
+            if (slashIdx < 0) {
+                // /api/player/kills/UUID → grouped kill counts by entity type
+                String json = PlayerAnalyticsDb.getPlayerKillsByTypeJson(rest);
+                handleJson(exchange, json);
+            } else {
+                // /api/player/kills/UUID/VictimType → individual kill events
+                String uuid = rest.substring(0, slashIdx);
+                String victimType = rest.substring(slashIdx + 1);
+                Map<String, String> params = parseQuery(exchange.getRequestURI());
+                int limit = 500;
+                try {
+                    String limitStr = params.get("limit");
+                    if (limitStr != null) {
+                        limit = Math.max(1, Math.min(Integer.parseInt(limitStr), 2000));
+                    }
+                } catch (NumberFormatException e) {
+                    // use default
+                }
+                String json = PlayerAnalyticsDb.getPlayerKillTypeDetailsJson(uuid, victimType, limit);
+                handleJson(exchange, json);
+            }
+        }
+    }
 
     static class DeathCausesHandler implements com.sun.net.httpserver.HttpHandler {
         @Override
