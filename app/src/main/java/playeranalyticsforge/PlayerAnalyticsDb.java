@@ -1995,9 +1995,9 @@ public final class PlayerAnalyticsDb {
                         break;
                     case "kd_ratio":
                         sql = "SELECT player_uuid, player_name, " +
-                              "CAST(total_kills AS FLOAT) / NULLIF(total_deaths, 0) AS value " +
+                              "CAST(kills AS FLOAT) / NULLIF(deaths, 0) AS value " +
                               "FROM player_stats " +
-                              "WHERE total_kills > 0 " +
+                              "WHERE kills > 0 " +
                               "ORDER BY value DESC " +
                               "LIMIT ?";
                         break;
@@ -2009,15 +2009,15 @@ public final class PlayerAnalyticsDb {
                               "LIMIT ?";
                         break;
                     case "total_kills":
-                        sql = "SELECT player_uuid, player_name, total_kills AS value " +
+                        sql = "SELECT player_uuid, player_name, kills AS value " +
                               "FROM player_stats " +
-                              "ORDER BY total_kills DESC " +
+                              "ORDER BY kills DESC " +
                               "LIMIT ?";
                         break;
                     case "deaths":
-                        sql = "SELECT player_uuid, player_name, total_deaths AS value " +
+                        sql = "SELECT player_uuid, player_name, deaths AS value " +
                               "FROM player_stats " +
-                              "ORDER BY total_deaths DESC " +
+                              "ORDER BY deaths DESC " +
                               "LIMIT ?";
                         break;
                     case "sessions":
